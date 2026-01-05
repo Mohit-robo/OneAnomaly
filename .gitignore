@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+python/venv/
+python/__pycache__/
+__pycache__/
+*.pyc
+
+# System
+.DS_Store
+Thumbs.db
+
+# User Data (Do not commit large datasets or temp files)
+Data/
+uploads/
+outputs/
+models/*
+memory_banks/*.pkl
+!memory_banks/.gitkeep
+python/results/*
+
+# Logs
+*.log
+
+*.png

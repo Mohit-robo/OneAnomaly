@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anomaly Detection System</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Anomaly Detection System</h1>
+            <p class="subtitle">DINOv3-powered industrial defect detection</p>
+        </header>
+
+        <!-- Section 1: Memory Bank Management -->
+        <section class="card">
+            <h2>Step 1: Memory Bank Setup</h2>
+
+            <div class="toggle-section">
+                <div class="radio-group">
+                    <label class="radio-label">
+                        <input type="radio" name="memory-mode" value="load" checked>
+                        <span>Load Existing Memory Bank</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="memory-mode" value="new">
+                        <span>Create New Memory Bank</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Load Existing -->
+            <div id="load-section" class="sub-section">
+                <label for="memory-bank-select">Select Memory Bank:</label>
+                <select id="memory-bank-select" class="input-field">
+                    <option value="">-- Select a memory bank --</option>
+                </select>
+                <button type="button" id="load-btn" class="btn btn-primary">Load Memory Bank</button>
+                <div id="load-status" class="status-message"></div>
+            </div>
+
+            <!-- Create New -->
+            <div id="new-section" class="sub-section" style="display: none;">
+                <label for="good-images-upload">Upload Good Images (ZIP or multiple files):</label>
+                <input type="file" id="good-images-upload" class="file-input" multiple
+                    accept=".jpg,.jpeg,.png,.bmp,.zip">
+                <button type="button" id="extract-btn" class="btn btn-primary">Extract Features</button>
+                <div id="extract-status" class="status-message"></div>
+
+                <div id="save-section" style="display: none; margin-top: 20px;">
+                    <label for="memory-bank-name">Memory Bank Name:</label>
+                    <input type="text" id="memory-bank-name" class="input-field" placeholder="e.g., bottle_caps_v1">
+                    <button type="button" id="save-btn" class="btn btn-success">Save Memory Bank</button>
+                    <div id="save-status" class="status-message"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Anomaly Detection -->
+        <section class="card">
+            <h2>Step 2: Detect Anomalies</h2>
+
+            <div id="detection-section">
+                <label for="test-images-upload">Upload Test Images (Single, Multiple, or ZIP):</label>
+                <input type="file" id="test-images-upload" class="file-input" multiple
+                    accept=".jpg,.jpeg,.png,.bmp,.zip">
+                <button type="button" id="detect-btn" class="btn btn-primary">Run Detection</button>
+                <div id="detect-status" class="status-message"></div>
+                <div id="progress-container" class="progress-container" style="display: none;">
+                    <div id="progress-bar" class="progress-bar"></div>
+                    <div id="progress-text" class="progress-text">0%</div>
+                </div>
+            </div>
+
+            <!-- Single Image Result -->
+            <div id="single-result" class="result-section" style="display: none;">
+                <h3>Detection Result</h3>
+                <div class="image-container">
+                    <img id="result-image" src="" alt="Anomaly Detection Result">
+                </div>
+                <div class="score-display">
+                    <span class="label">Anomaly Score:</span>
+                    <span id="anomaly-score" class="score">0.0000</span>
+                </div>
+                <button type="button" id="save-single-btn" class="btn btn-success">Save Result Locally</button>
+            </div>
+
+            <!-- Multiple Images Result -->
+            <div id="multiple-results" class="result-section" style="display: none;">
+                <h3>Detection Results</h3>
+                <div id="results-grid" class="results-grid"></div>
+                <button type="button" id="download-all-btn" class="btn btn-success">Download All Results</button>
+            </div>
+        </section>
+
+        <!-- Status Indicator -->
+        <div id="global-status" class="global-status">
+            <span class="status-dot"></span>
+            <span id="status-text">Ready</span>
+        </div>
+    </div>
+
+    <!-- Terminal Log Window -->
+    <div class="container">
+        <div id="terminal-container" class="terminal-container">
+            <!-- Logs will appear here -->
+            <div class="terminal-line"><span class="terminal-timestamp">--:--:--</span>System Ready. Waiting for logs...
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,3 @@
+[submodule "python/dinov3"]
+	path = python/dinov3
+	url = https://github.com/facebookresearch/dinov3.git

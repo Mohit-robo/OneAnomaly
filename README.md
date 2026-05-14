@@ -5,10 +5,15 @@ A premium, industrial-grade **Web Application** for detecting surfacing defects 
 ## 🌟 Web App Features
 
 ### 🖥️ Modern User Interface
--   **Sleek Dark Mode**: Designed for low-eye-strain usage in industrial environments.
--   **Reactive Design**: Responsive UI that works seamlessly across devices.
--   **Live Terminal**: Integrated black-box terminal showing real-time Python backend logs directly in the browser. 
--   **Progress Tracking**: Precision progress bar for long-running extraction and detection tasks.
+-   **Roboflow-Inspired Workflow**: A premium, linear stage-by-stage workflow guiding the user from preprocessing to deployment.
+-   **Sleek Dark Mode**: Designed for low-eye-strain usage in industrial environments with glassmorphic elements and modern typography.
+-   **Live Interactive Previews**: Instantly visualize thresholding and background subtraction results within inline grid canvases.
+-   **Contextual Assistance**: Beautiful, non-clipping hover tooltips attached to all complex parameters.
+
+### ⚙️ Stage 1: Pipeline Preprocessing
+-   **Averaged Background Subtraction**: Upload empty reference backgrounds to subtract static noise from industrial camera feeds.
+-   **Binary Thresholding**: High-fidelity parameter extraction with min/max bounds and granular morphological denoising (Open/Close kernels).
+-   **Session Memory**: Configurations are safely retained across server states during active workflow sessions.
 
 ### 🧠 Intelligent Memory Management
 -   **One-Click Training**: Simply upload "Good" images (ZIP or folders) and click "Extract". The app handles the complexities of DINOv3 feature extraction and FAISS indexing.

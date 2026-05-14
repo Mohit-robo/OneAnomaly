@@ -68,42 +68,28 @@ python tests/test_thresholding.py \
 
 ---
 
-## Phase 1.2 — Background Subtraction
+## Phase 1.2 — Averaged Background Subtraction
 
-### Mode: `average` — Build mean reference from good images *(recommended first try)*
+### Interactive (live trackbar preview)
 ```bash
 python tests/test_bg_subtraction.py \
-    --mode average \
-    --input_dir dataset/good \
-    --output_dir outputs/bg_sub_test \
-    --diff_threshold 25 --morph_open 3 --morph_close 7
-```
-
-### Mode: `template` — Subtract a specific blank reference image
-```bash
-python tests/test_bg_subtraction.py \
-    --mode template \
-    --template path/to/blank_background.jpg \
-    --input_dir dataset/good \
-    --output_dir outputs/bg_sub_test
-```
-
-### Mode: `mog2` / `knn` — OpenCV video background subtractor
-```bash
-python tests/test_bg_subtraction.py \
-    --mode mog2 \
-    --input_dir dataset/good \
-    --output_dir outputs/bg_sub_test \
-    --diff_threshold 16
-```
-
-### Interactive preview (template / average only)
-```bash
-python tests/test_bg_subtraction.py \
-    --mode average \
-    --input_dir dataset/good \
-    --image path/to/test_image.jpg \
+    --ref_dir ../dataset/metal_plate/bg \
+    --input_dir ../dataset/metal_plate/test/scratches/ \
+    --image ../dataset/metal_plate/test/scratches/001.png \
     --interactive
+```
+- Opens OpenCV window with sliders for **Diff Threshold**, **Morph Open**, **Morph Close**, **Fill Holes**, and **Min Comp %**
+- Press **S** to save current result, **Q** to quit
+
+### Batch (process a folder)
+Builds a mean reference from the empty background images in `--ref_dir`, then applies subtraction to all images in `--input_dir`.
+```bash
+python tests/test_bg_subtraction.py \
+    --ref_dir ../dataset/metal_plate/bg \
+    --input_dir ../dataset/metal_plate/test/scratches/ \
+    --diff_threshold 85 --morph_open 5 --morph_close 7 \
+    --min_component_ratio 0.1 \
+    --output_dir outputs/bg_sub_test --save_masks
 ```
 
 ---

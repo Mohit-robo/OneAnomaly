@@ -136,16 +136,11 @@ def build_result_grid(
     masked_r   = _resize(masked_img)
 
     # Annotation bar
-    def _annotate(img, text, color=(0, 255, 100)):
+    def _annotate(img, text, color=(255, 255, 255)):
         out = img.copy()
-        cv2.putText(out, text, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
-        cv2.putText(out, text, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+        cv2.putText(out, text, (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 4)
+        cv2.putText(out, text, (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
         return out
-
-    param_str = (
-        f"ch={params['channel']}  min={params['thresh_min']}  "
-        f"max={params['thresh_max']}  open={params['morph_open']}  close={params['morph_close']}"
-    )
 
     coverage = (mask > 0).sum() / mask.size * 100
     orig_r   = _annotate(orig_r,   f"Original  [{W}x{H}]")
@@ -156,11 +151,6 @@ def build_result_grid(
     top    = np.hstack([orig_r, ch_r])
     bottom = np.hstack([mask_r, masked_r])
     grid   = np.vstack([top, bottom])
-
-    # Param strip at bottom
-    strip = np.zeros((36, grid.shape[1], 3), dtype=np.uint8)
-    cv2.putText(strip, param_str, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
-    grid = np.vstack([grid, strip])
 
     return grid
 

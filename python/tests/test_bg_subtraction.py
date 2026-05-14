@@ -164,10 +164,10 @@ def build_result_grid(
             img = np.clip(img, 0, 255).astype(np.uint8)
         return cv2.resize(img, (TW, TH))
 
-    def _a(img, txt, col=(0, 240, 100)):
+    def _a(img, txt, col=(255, 255, 255)):
         out = img.copy()
-        cv2.putText(out, txt, (8, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 3)
-        cv2.putText(out, txt, (8, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.65, col, 1)
+        cv2.putText(out, txt, (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 4)
+        cv2.putText(out, txt, (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.8, col, 2)
         return out
 
     H, W = image_bgr.shape[:2]
@@ -178,11 +178,7 @@ def build_result_grid(
         np.hstack([_a(_r(cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)), f"Mask  cov={cov:.1f}%"),
                    _a(_r(masked_img),                             "Masked Result")]),
     ])
-    strip = np.zeros((36, grid.shape[1], 3), dtype=np.uint8)
-    pstr  = (f"diff_thr={params['diff_threshold']}  open={params['morph_open']}  "
-             f"close={params['morph_close']}  {label}")
-    cv2.putText(strip, pstr, (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (200, 200, 200), 1)
-    return np.vstack([grid, strip])
+    return grid
 
 
 # ---------------------------------------------------------------------------

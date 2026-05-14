@@ -10,12 +10,11 @@
 - [x] `test_preprocess_pipeline.py` — end-to-end: preprocessing → ONNX → FAISS → heatmap with per-image latency.
 
 ### Integration into App (Next)
-- [ ] Add UI panel for Threshold Controls (min/max intensity, channel selection).
-- [ ] Implement image thresholding to generate binary BG mask.
-- [ ] Implement live preview of threshold-masked result.
-- [ ] Add support to upload a reference "blank" template image (or average of multiple).
-- [ ] Implement OpenCV template matching or MOG2/KNN BG subtraction to output foreground mask.
-- [ ] Display live preview of advanced masked result.
+- [ ] Add UI panel for Threshold Controls (min/max intensity, channel selection, morph open/close).
+- [ ] Add UI panel for Background Subtraction Controls (diff threshold, morph open/close, fill holes, min component).
+- [ ] Add support to upload a reference "blank" folder/images for averaged BG subtraction.
+- [ ] Implement live preview of threshold/bg-subtraction masked result.
+- [ ] Implement image preprocessing to generate binary BG mask before feature extraction in api_server.py/feature_extractor.py.
 
 ## Stage 2: Phase 2 — Spatial Regions
 

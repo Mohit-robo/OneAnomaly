@@ -19,6 +19,15 @@ from feature_extractor import FeatureExtractor
 from memory_bank import MemoryBank
 from anomaly_detector import AnomalyDetector
 
+# Import from local test scripts
+import sys
+sys.path.append(str(Path(__file__).parent))
+from tests.test_thresholding import apply_threshold_mask
+from tests.test_thresholding import build_result_grid as build_thresh_grid
+from tests.test_bg_subtraction import apply_mask as apply_bg_mask
+from tests.test_bg_subtraction import build_result_grid as build_bg_grid
+from tests.test_bg_subtraction import build_averaged_reference, load_images_from_dir
+
 
 app = Flask(__name__)
 CORS(app)
@@ -27,6 +36,10 @@ CORS(app)
 feature_extractor: Optional[FeatureExtractor] = None
 memory_bank: Optional[MemoryBank] = None
 anomaly_detector: Optional[AnomalyDetector] = None
+
+# Global Preprocessing State
+preprocess_config = {"mode": "thresholding"}
+averaged_bg_reference: Optional[np.ndarray] = None
 
 # Paths
 BASE_DIR = Path(__file__).parent.parent
@@ -128,6 +141,136 @@ def health_check():
     })
 
 
+@app.route('/api/configure_preprocess', methods=['POST'])
+def configure_preprocess():
+    """Save preprocessing config and optionally build averaged background reference."""
+    global preprocess_config, averaged_bg_reference
+    try:
+        data = request.form.get('config')
+        if not data:
+            return jsonify({'error': 'No config provided'}), 400
+            
+        config = json.loads(data)
+        preprocess_config = config
+        
+        if config.get('mode') == 'average':
+            files = request.files.getlist('ref_files')
+            if files:
+                bg_dir = UPLOAD_DIR / 'temp_bg'
+                bg_dir.mkdir(exist_ok=True)
+                # clear previous
+                for item in bg_dir.iterdir():
+                    if item.is_file(): item.unlink()
+                    else: shutil.rmtree(item)
+                
+                # save items
+                for file in files:
+                    if file.filename.endswith('.zip'):
+                        zip_path = bg_dir / 'upload.zip'
+                        file.save(zip_path)
+                        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                            zip_ref.extractall(bg_dir)
+                        zip_path.unlink()
+                    elif file.filename:
+                        file.save(bg_dir / file.filename)
+                
+                try:
+                    images = load_images_from_dir(bg_dir)
+                    averaged_bg_reference = build_averaged_reference(images)
+                except Exception as e:
+                    return jsonify({'error': f"Failed to build reference: {str(e)}"}), 400
+                    
+        return jsonify({'success': True, 'config': preprocess_config})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/preview_mask', methods=['POST'])
+def preview_mask():
+    """Apply the current masking configuration to a test image and return the preview grid."""
+    try:
+        test_file = request.files.get('test_image')
+        if not test_file:
+            return jsonify({'error': 'No test image provided'}), 400
+            
+        config_data = request.form.get('config')
+        config = json.loads(config_data) if config_data else preprocess_config
+        
+        # Save temp test image
+        test_dir = UPLOAD_DIR / 'temp_preview'
+        test_dir.mkdir(exist_ok=True)
+        test_path = test_dir / test_file.filename
+        test_file.save(test_path)
+        
+        image_bgr = cv2.imread(str(test_path))
+        if image_bgr is None:
+            return jsonify({'error': 'Invalid test image format'}), 400
+            
+        # If average mode, we might need to build the reference locally if not saved
+        local_reference = averaged_bg_reference
+        if config.get('mode') == 'average':
+            files = request.files.getlist('ref_files')
+            if files:
+                bg_dir = UPLOAD_DIR / 'temp_preview_bg'
+                bg_dir.mkdir(exist_ok=True)
+                for item in bg_dir.iterdir():
+                    if item.is_file(): item.unlink()
+                    else: shutil.rmtree(item)
+                    
+                for file in files:
+                    if file.filename.endswith('.zip'):
+                        zip_path = bg_dir / 'upload.zip'
+                        file.save(zip_path)
+                        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                            zip_ref.extractall(bg_dir)
+                        zip_path.unlink()
+                    elif file.filename:
+                        file.save(bg_dir / file.filename)
+                try:
+                    images = load_images_from_dir(bg_dir)
+                    local_reference = build_averaged_reference(images)
+                except Exception:
+                    pass
+            
+            if local_reference is None:
+                return jsonify({'error': 'No averaged background reference available.'}), 400
+                
+        # Apply mask based on config
+        if config.get('mode') == 'thresholding':
+            mask, masked_img, channel_img = apply_threshold_mask(
+                image_bgr,
+                channel=config.get('channel', 'gray'),
+                thresh_min=config.get('thresh_min', 30),
+                thresh_max=config.get('thresh_max', 220),
+                morph_open=config.get('morph_open', 3),
+                morph_close=config.get('morph_close', 5)
+            )
+            grid = build_thresh_grid(image_bgr, mask, masked_img, channel_img, config)
+        else: # average
+            mask, masked_img = apply_bg_mask(
+                image_bgr,
+                local_reference,
+                diff_threshold=config.get('diff_threshold', 85),
+                morph_open=config.get('morph_open', 5),
+                morph_close=config.get('morph_close', 7),
+                fill_holes=config.get('fill_holes', True),
+                min_component_ratio=config.get('min_component_ratio', 0.1)
+            )
+            grid = build_bg_grid(image_bgr, local_reference, mask, masked_img, config, label="Preview")
+            
+        # Save output grid
+        out_path = test_dir / f"grid_{test_file.filename}.png"
+        cv2.imwrite(str(out_path), grid)
+        
+        return send_file(out_path, mimetype='image/png')
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/extract_features', methods=['POST'])
 def extract_features():
     """
@@ -174,6 +317,33 @@ def extract_features():
         else:
             return jsonify({'error': 'No files provided'}), 400
         
+        # Preprocess images before extraction
+        for item in temp_dir.rglob('*'):
+            if item.is_file() and item.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
+                image_bgr = cv2.imread(str(item))
+                if image_bgr is not None:
+                    if preprocess_config.get('mode') == 'thresholding':
+                        _, masked_img, _ = apply_threshold_mask(
+                            image_bgr,
+                            channel=preprocess_config.get('channel', 'gray'),
+                            thresh_min=preprocess_config.get('thresh_min', 30),
+                            thresh_max=preprocess_config.get('thresh_max', 220),
+                            morph_open=preprocess_config.get('morph_open', 3),
+                            morph_close=preprocess_config.get('morph_close', 5)
+                        )
+                        cv2.imwrite(str(item), masked_img)
+                    elif preprocess_config.get('mode') == 'average' and averaged_bg_reference is not None:
+                        _, masked_img = apply_bg_mask(
+                            image_bgr,
+                            averaged_bg_reference,
+                            diff_threshold=preprocess_config.get('diff_threshold', 85),
+                            morph_open=preprocess_config.get('morph_open', 5),
+                            morph_close=preprocess_config.get('morph_close', 7),
+                            fill_holes=preprocess_config.get('fill_holes', True),
+                            min_component_ratio=preprocess_config.get('min_component_ratio', 0.1)
+                        )
+                        cv2.imwrite(str(item), masked_img)
+
         # Extract features
         features, image_paths = feature_extractor.extract_from_folder(str(temp_dir))
         
@@ -353,6 +523,33 @@ def detect_anomalies():
         else:
             return jsonify({'error': 'No files provided'}), 400
         
+        # Preprocess images before detection
+        for item in temp_dir.rglob('*'):
+            if item.is_file() and item.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
+                image_bgr = cv2.imread(str(item))
+                if image_bgr is not None:
+                    if preprocess_config.get('mode') == 'thresholding':
+                        _, masked_img, _ = apply_threshold_mask(
+                            image_bgr,
+                            channel=preprocess_config.get('channel', 'gray'),
+                            thresh_min=preprocess_config.get('thresh_min', 30),
+                            thresh_max=preprocess_config.get('thresh_max', 220),
+                            morph_open=preprocess_config.get('morph_open', 3),
+                            morph_close=preprocess_config.get('morph_close', 5)
+                        )
+                        cv2.imwrite(str(item), masked_img)
+                    elif preprocess_config.get('mode') == 'average' and averaged_bg_reference is not None:
+                        _, masked_img = apply_bg_mask(
+                            image_bgr,
+                            averaged_bg_reference,
+                            diff_threshold=preprocess_config.get('diff_threshold', 85),
+                            morph_open=preprocess_config.get('morph_open', 5),
+                            morph_close=preprocess_config.get('morph_close', 7),
+                            fill_holes=preprocess_config.get('fill_holes', True),
+                            min_component_ratio=preprocess_config.get('min_component_ratio', 0.1)
+                        )
+                        cv2.imwrite(str(item), masked_img)
+
         # Process images
         results = anomaly_detector.detect_from_folder(
             str(temp_dir),
@@ -433,6 +630,8 @@ if __name__ == '__main__':
     print("\nStarting server on http://localhost:5000")
     print("\nEndpoints:")
     print("  GET  /health")
+    print("  POST /api/configure_preprocess")
+    print("  POST /api/preview_mask")
     print("  POST /extract_features")
     print("  POST /save_memory_bank")
     print("  POST /load_memory_bank")

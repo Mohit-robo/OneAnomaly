@@ -4,112 +4,224 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Anomaly Detection System</title>
+    <title>Platform | Pre-Processing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-    <div class="container">
-        <header>
-            <h1>Anomaly Detection System</h1>
-            <p class="subtitle">DINOv3-powered industrial defect detection</p>
-        </header>
-
-        <!-- Section 1: Memory Bank Management -->
-        <section class="card">
-            <h2>Step 1: Memory Bank Setup</h2>
-
-            <div class="toggle-section">
-                <div class="radio-group">
-                    <label class="radio-label">
-                        <input type="radio" name="memory-mode" value="load" checked>
-                        <span>Load Existing Memory Bank</span>
-                    </label>
-                    <label class="radio-label">
-                        <input type="radio" name="memory-mode" value="new">
-                        <span>Create New Memory Bank</span>
-                    </label>
-                </div>
-            </div>
-
-            <!-- Load Existing -->
-            <div id="load-section" class="sub-section">
-                <label for="memory-bank-select">Select Memory Bank:</label>
-                <select id="memory-bank-select" class="input-field">
-                    <option value="">-- Select a memory bank --</option>
-                </select>
-                <button type="button" id="load-btn" class="btn btn-primary">Load Memory Bank</button>
-                <div id="load-status" class="status-message"></div>
-            </div>
-
-            <!-- Create New -->
-            <div id="new-section" class="sub-section" style="display: none;">
-                <label for="good-images-upload">Upload Good Images (ZIP or multiple files):</label>
-                <input type="file" id="good-images-upload" class="file-input" multiple
-                    accept=".jpg,.jpeg,.png,.bmp,.zip">
-                <button type="button" id="extract-btn" class="btn btn-primary">Extract Features</button>
-                <div id="extract-status" class="status-message"></div>
-
-                <div id="save-section" style="display: none; margin-top: 20px;">
-                    <label for="memory-bank-name">Memory Bank Name:</label>
-                    <input type="text" id="memory-bank-name" class="input-field" placeholder="e.g., bottle_caps_v1">
-                    <button type="button" id="save-btn" class="btn btn-success">Save Memory Bank</button>
-                    <div id="save-status" class="status-message"></div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Section 2: Anomaly Detection -->
-        <section class="card">
-            <h2>Step 2: Detect Anomalies</h2>
-
-            <div id="detection-section">
-                <label for="test-images-upload">Upload Test Images (Single, Multiple, or ZIP):</label>
-                <input type="file" id="test-images-upload" class="file-input" multiple
-                    accept=".jpg,.jpeg,.png,.bmp,.zip">
-                <button type="button" id="detect-btn" class="btn btn-primary">Run Detection</button>
-                <div id="detect-status" class="status-message"></div>
-                <div id="progress-container" class="progress-container" style="display: none;">
-                    <div id="progress-bar" class="progress-bar"></div>
-                    <div id="progress-text" class="progress-text">0%</div>
-                </div>
-            </div>
-
-            <!-- Single Image Result -->
-            <div id="single-result" class="result-section" style="display: none;">
-                <h3>Detection Result</h3>
-                <div class="image-container">
-                    <img id="result-image" src="" alt="Anomaly Detection Result">
-                </div>
-                <div class="score-display">
-                    <span class="label">Anomaly Score:</span>
-                    <span id="anomaly-score" class="score">0.0000</span>
-                </div>
-                <button type="button" id="save-single-btn" class="btn btn-success">Save Result Locally</button>
-            </div>
-
-            <!-- Multiple Images Result -->
-            <div id="multiple-results" class="result-section" style="display: none;">
-                <h3>Detection Results</h3>
-                <div id="results-grid" class="results-grid"></div>
-                <button type="button" id="download-all-btn" class="btn btn-success">Download All Results</button>
-            </div>
-        </section>
-
-        <!-- Status Indicator -->
-        <div id="global-status" class="global-status">
-            <span class="status-dot"></span>
-            <span id="status-text">Ready</span>
+    <!-- Top Header -->
+    <header id="topbar">
+        <div class="topbar-left">
+            <span class="project-name">Silicon/anomaly_app</span>
+            <span class="breadcrumb-separator">/</span>
+            <span class="breadcrumb-current">Pre-Processing Configuration</span>
         </div>
-    </div>
-
-    <!-- Terminal Log Window -->
-    <div class="container">
-        <div id="terminal-container" class="terminal-container">
-            <!-- Logs will appear here -->
-            <div class="terminal-line"><span class="terminal-timestamp">--:--:--</span>System Ready. Waiting for logs...
-            </div>
+        <div class="topbar-right">
+            <div id="session-status" class="status-badge status-ready">Session Ready</div>
+            <div id="gpu-status" class="status-badge status-active">GPU Active</div>
+            <button class="btn btn-icon theme-toggle" title="Toggle Theme">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="icon"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="avatar">S</div>
         </div>
+    </header>
+
+    <div class="layout-container">
+        <!-- Sidebar Navigation -->
+        <nav id="sidebar">
+            <div class="sidebar-header">
+                <h2 class="sidebar-title">Pipeline Builder</h2>
+            </div>
+            <ul class="workflow-stages">
+                <!-- Stage 1 -->
+                <li class="stage active">
+                    <div class="stage-header">
+                        <span class="stage-number">1</span>
+                        <span class="stage-name">Pre-Processing</span>
+                    </div>
+                    <ul class="sub-tasks">
+                        <li class="sub-task active">Thresholding / BG Sub</li>
+                    </ul>
+                </li>
+                <!-- Stage 2 -->
+                <li class="stage">
+                    <div class="stage-header">
+                        <span class="stage-number">2</span>
+                        <span class="stage-name">Spatial Regions</span>
+                    </div>
+                    <ul class="sub-tasks">
+                        <li class="sub-task">Mode A (Grid)</li>
+                        <li class="sub-task">Mode B (Custom)</li>
+                        <li class="sub-task">Mode C (Patch)</li>
+                    </ul>
+                </li>
+                <!-- Stage 3 -->
+                <li class="stage">
+                    <div class="stage-header">
+                        <span class="stage-number">3</span>
+                        <span class="stage-name">Memory Bank</span>
+                    </div>
+                    <ul class="sub-tasks">
+                        <li class="sub-task">Parameter Recap</li>
+                        <li class="sub-task">Extraction</li>
+                    </ul>
+                </li>
+                <!-- Stage 4 -->
+                <li class="stage">
+                    <div class="stage-header">
+                        <span class="stage-number">4</span>
+                        <span class="stage-name">Detect</span>
+                    </div>
+                    <ul class="sub-tasks">
+                        <li class="sub-task">Inference</li>
+                        <li class="sub-task">Results Explorer</li>
+                    </ul>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Main Workspace -->
+        <main id="workspace">
+            <div class="workspace-header">
+                <h1>Data Pre-processing</h1>
+                <p>Isolate the region of interest using thresholding or background subtraction techniques.</p>
+            </div>
+
+            <div class="module-card">
+                <div class="card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                    <h3>Mask Generation Mode</h3>
+                    <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <div class="card-content">
+                    <div class="radio-group row">
+                        <label class="radio-card">
+                            <input type="radio" name="preprocess_mode" value="thresholding" checked autocomplete="off">
+                            <div class="radio-content">
+                                <span class="radio-title">Intensity Thresholding</span>
+                                <span class="radio-desc">Best for high-contrast bare parts.</span>
+                            </div>
+                        </label>
+                        <label class="radio-card">
+                            <input type="radio" name="preprocess_mode" value="average" autocomplete="off">
+                            <div class="radio-content">
+                                <span class="radio-title">Averaged Background Subtraction</span>
+                                <span class="radio-desc">Best for parts with complex fixtures.</span>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Thresholding Configuration -->
+                    <div id="panel-thresholding" class="config-panel">
+                        <div class="input-group full-width" style="margin-bottom: 16px;">
+                            <label for="thresh-preview-upload">Upload Tuning Image (Internal Preview)</label>
+                            <input type="file" id="thresh-preview-upload" class="file-input" accept=".jpg,.jpeg,.png,.bmp">
+                        </div>
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label class="tooltip-container" for="thresh-channel">Channel
+                                    <span class="info-icon" data-tooltip="The color channel over which to compute pixel intensity masks.">i</span>
+                                </label>
+                                <select id="thresh-channel" class="input-field">
+                                    <option value="gray">Grayscale</option>
+                                    <option value="red">Red</option>
+                                    <option value="green">Green</option>
+                                    <option value="blue">Blue</option>
+                                    <option value="saturation">HSV Saturation</option>
+                                    <option value="value">HSV Value</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label class="tooltip-container" for="thresh-min">Min Intensity
+                                    <span class="info-icon" data-tooltip="Minimum pixel brightness (0-255) to be considered part of the foreground.">i</span>
+                                    <span class="value-display">(30)</span>
+                                </label>
+                                <input type="range" id="thresh-min" min="0" max="255" value="30" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                            </div>
+                            <div class="input-group">
+                                <label class="tooltip-container" for="thresh-max">Max Intensity
+                                    <span class="info-icon" data-tooltip="Maximum pixel brightness (0-255) to be considered part of the foreground.">i</span>
+                                    <span class="value-display">(220)</span>
+                                </label>
+                                <input type="range" id="thresh-max" min="0" max="255" value="220" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                            </div>
+                        </div>
+                        <div class="divider"></div>
+                        <h4>Morphological Denoising</h4>
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label class="tooltip-container" for="morph-open">Morph Open Kernel
+                                    <span class="info-icon" data-tooltip="Removes small outer noise (salt noise) from the thresholded mask. Higher value = stronger noise removal.">i</span>
+                                    <span class="value-display">(3)</span>
+                                </label>
+                                <input type="range" id="morph-open" min="0" max="31" step="2" value="3" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                            </div>
+                            <div class="input-group">
+                                <label class="tooltip-container" for="morph-close">Morph Close Kernel
+                                    <span class="info-icon" data-tooltip="Fills small black holes (pepper noise) inside the detected foreground mask. Higher value = fills larger holes.">i</span>
+                                    <span class="value-display">(5)</span>
+                                </label>
+                                <input type="range" id="morph-close" min="0" max="31" step="2" value="5" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                            </div>
+                        </div>
+                        <div id="thresh-live-preview-container" style="display: none; text-align: center; margin-top: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 8px; background: var(--bg-surface-elevated);">
+                            <span style="font-size: 12px; color: var(--text-tertiary); display: block; margin-bottom: 8px;">Live Threshold Output</span>
+                            <img id="thresh-preview-img" src="" style="max-width: 100%; border-radius: var(--radius-sm);">
+                        </div>
+                    </div>
+
+                    <!-- Background Subtraction Configuration -->
+                    <div id="panel-average" class="config-panel" style="display: none;">
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label for="bg-ref-upload">Upload Empty Background Reference (ZIP or multiple images)</label>
+                                <input type="file" id="bg-ref-upload" class="file-input" multiple accept=".jpg,.jpeg,.png,.bmp,.zip">
+                            </div>
+                            <div class="input-group">
+                                <label for="avg-preview-upload">Upload Tuning Image (Internal Preview)</label>
+                                <input type="file" id="avg-preview-upload" class="file-input" accept=".jpg,.jpeg,.png,.bmp">
+                            </div>
+                        </div>
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label class="tooltip-container" for="avg-diff-thresh">Diff Threshold
+                                    <span class="info-icon" data-tooltip="Sets the sensitivity for pixel differences against the background. Lower is more sensitive.">i</span>
+                                    <span class="value-display">(85)</span>
+                                </label>
+                                <input type="range" id="avg-diff-thresh" min="0" max="255" value="85" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                            </div>
+                            <div class="input-group checkbox-group">
+                                <label class="checkbox-label tooltip-container">
+                                    <input type="checkbox" id="avg-fill-holes" checked>
+                                    <span class="custom-checkbox"></span>
+                                    Fill Enclosed Holes
+                                    <span class="info-icon" data-tooltip="Fills any black holes/gaps completely surrounded by the detected white part mask.">i</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label class="tooltip-container" for="avg-min-ratio">Min Component Ratio
+                                    <span class="info-icon" data-tooltip="Removes noise. Drops disconnected blobs that are smaller than this ratio compared to the largest primary object. Keeps the edges clean if you have dust/specs.">i</span>
+                                    <span class="value-display">(0.10)</span>
+                                </label>
+                                <input type="range" id="avg-min-ratio" min="0.0" max="0.5" step="0.01" value="0.10" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                            </div>
+                        </div>
+                        <div id="avg-live-preview-container" style="display: none; text-align: center; margin-top: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 8px; background: var(--bg-surface-elevated);">
+                            <span style="font-size: 12px; color: var(--text-tertiary); display: block; margin-bottom: 8px;">Live Background Subtraction Output</span>
+                            <img id="avg-preview-img" src="" style="max-width: 100%; border-radius: var(--radius-sm);">
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <button class="btn btn-primary" id="save-config-btn">Save Configuration & Continue</button>
+                    <span id="config-status" class="status-msg"></span>
+                </div>
+            </div>
+        </main>
     </div>
 
     <script src="app.js"></script>

@@ -13,12 +13,16 @@ Thumbs.db
 Data/
 uploads/
 outputs/
-models/*
-memory_banks/*.pkl
-!memory_banks/.gitkeep
+models/
+memory_banks/
 python/results/*
+dataset/
+anomaly_app/
 
 # Logs
 *.log
 
 *.png
+
+package-lock.json
+package.json

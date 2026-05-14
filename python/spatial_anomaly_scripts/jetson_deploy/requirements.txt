@@ -1,0 +1,19 @@
+# Jetson TensorRT Deployment - Requirements
+
+# Core dependencies
+numpy>=1.19.0
+opencv-python>=4.5.0
+scikit-learn>=0.24.0
+scipy>=1.7.0
+matplotlib>=3.3.0
+tqdm>=4.60.0
+
+# FAISS GPU (for similarity search)
+# Install via: pip3 install faiss-gpu
+# Or build from source for Jetson
+
+# TensorRT (comes pre-installed with Jetpack 5.1.2)
+# No pip installation needed
+
+# CUDA Python bindings
+# Install via: pip3 install cuda-python

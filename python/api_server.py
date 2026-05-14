@@ -22,11 +22,11 @@ from anomaly_detector import AnomalyDetector
 # Import from local test scripts
 import sys
 sys.path.append(str(Path(__file__).parent))
-from tests.test_thresholding import apply_threshold_mask
-from tests.test_thresholding import build_result_grid as build_thresh_grid
-from tests.test_bg_subtraction import apply_mask as apply_bg_mask
-from tests.test_bg_subtraction import build_result_grid as build_bg_grid
-from tests.test_bg_subtraction import build_averaged_reference, load_images_from_dir
+from src.test_thresholding import apply_threshold_mask
+from src.test_thresholding import build_result_grid as build_thresh_grid
+from src.test_bg_subtraction import apply_mask as apply_bg_mask
+from src.test_bg_subtraction import build_result_grid as build_bg_grid
+from src.test_bg_subtraction import build_averaged_reference, load_images_from_dir
 
 
 app = Flask(__name__)

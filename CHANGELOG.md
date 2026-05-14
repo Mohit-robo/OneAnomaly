@@ -2,6 +2,19 @@
 
 All notable changes to the **Anomaly Detection App** project.
 
+## [v1.1.0] - 2026-05-14
+
+### 🚀 Major UI/UX Overhaul (Stage 1.2: Preprocessing)
+-   **Roboflow-Inspired Aesthetics**: Migrated UI to a highly-polished, premium dark mode featuring custom typography (Inter/Geist), glassmorphic elements, and border glow interactions.
+-   **Stage 1: Preprocessing Mode**: Focused the interface explicitly on image preprocessing (Background Subtraction and Binary Thresholding).
+-   **Live Interactive Previews**: Added real-time layout grid visualization driven by instantaneous API endpoints, removing the clunky `morphological` components from background subtraction routines for cleaner results.
+-   **Workflow-Oriented Layout**: Widened the main central canvas by dropping the static right-sided metadata inspector, placing emphasis on an immersive workspace.
+-   **Contextual Tooltips**: Overhauled frontend elements to feature custom non-clipping hover tooltips for concise parameter guidance.
+
+### 🐛 Backend Refinements
+-   **Session Memory State**: Shifted intermediate pipeline configuration storage to Server RAM instead of immediate JSON disk saving, building state dynamically across tools.
+-   **Directory Restructuring**: Refactored `python/tests` directory to `python/src` for standardized module organization.
+
 ## [v1.0.0] - 2026-01-05
 
 ### 🚀 Major Features

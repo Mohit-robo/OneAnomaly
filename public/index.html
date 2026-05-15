@@ -15,15 +15,18 @@
     <!-- Top Header -->
     <header id="topbar">
         <div class="topbar-left">
-            <span class="project-name">Silicon/anomaly_app</span>
-            <span class="breadcrumb-separator">/</span>
-            <span class="breadcrumb-current">Pre-Processing Configuration</span>
+            <!-- Left empty for grid symmetry -->
         </div>
+        <div class="topbar-center">OneAnamoly</div>
         <div class="topbar-right">
             <div id="session-status" class="status-badge status-ready">Session Ready</div>
             <div id="gpu-status" class="status-badge status-active">GPU Active</div>
             <button class="btn btn-icon theme-toggle" title="Toggle Theme">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="icon"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" class="icon">
+                    <path
+                        d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
             </button>
             <div class="avatar">S</div>
         </div>
@@ -37,7 +40,7 @@
             </div>
             <ul class="workflow-stages">
                 <!-- Stage 1 -->
-                <li class="stage active">
+                <li class="stage active" id="stage-preprocessing">
                     <div class="stage-header">
                         <span class="stage-number">1</span>
                         <span class="stage-name">Pre-Processing</span>
@@ -47,15 +50,15 @@
                     </ul>
                 </li>
                 <!-- Stage 2 -->
-                <li class="stage">
+                <li class="stage" id="stage-spatial">
                     <div class="stage-header">
                         <span class="stage-number">2</span>
                         <span class="stage-name">Spatial Regions</span>
                     </div>
                     <ul class="sub-tasks">
-                        <li class="sub-task">Mode A (Grid)</li>
-                        <li class="sub-task">Mode B (Custom)</li>
-                        <li class="sub-task">Mode C (Patch)</li>
+                        <li class="sub-task" id="task-grid">Automatic Quadrant Split</li>
+                        <li class="sub-task" id="task-manual">Manual Region Selection</li>
+                        <li class="sub-task" id="task-whole">Whole Image Analysis</li>
                     </ul>
                 </li>
                 <!-- Stage 3 -->
@@ -85,6 +88,7 @@
 
         <!-- Main Workspace -->
         <main id="workspace">
+          <div id="page-preprocessing" class="step-page active">
             <div class="workspace-header">
                 <h1>Data Pre-processing</h1>
                 <p>Isolate the region of interest using thresholding or background subtraction techniques.</p>
@@ -93,7 +97,9 @@
             <div class="module-card">
                 <div class="card-header" onclick="this.parentElement.classList.toggle('collapsed')">
                     <h3>Mask Generation Mode</h3>
-                    <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
                 </div>
                 <div class="card-content">
                     <div class="radio-group row">
@@ -117,12 +123,14 @@
                     <div id="panel-thresholding" class="config-panel">
                         <div class="input-group full-width" style="margin-bottom: 16px;">
                             <label for="thresh-preview-upload">Upload Tuning Image (Internal Preview)</label>
-                            <input type="file" id="thresh-preview-upload" class="file-input" accept=".jpg,.jpeg,.png,.bmp">
+                            <input type="file" id="thresh-preview-upload" class="file-input"
+                                accept=".jpg,.jpeg,.png,.bmp">
                         </div>
                         <div class="input-row">
                             <div class="input-group">
                                 <label class="tooltip-container" for="thresh-channel">Channel
-                                    <span class="info-icon" data-tooltip="The color channel over which to compute pixel intensity masks.">i</span>
+                                    <span class="info-icon"
+                                        data-tooltip="The color channel over which to compute pixel intensity masks.">i</span>
                                 </label>
                                 <select id="thresh-channel" class="input-field">
                                     <option value="gray">Grayscale</option>
@@ -135,17 +143,21 @@
                             </div>
                             <div class="input-group">
                                 <label class="tooltip-container" for="thresh-min">Min Intensity
-                                    <span class="info-icon" data-tooltip="Minimum pixel brightness (0-255) to be considered part of the foreground.">i</span>
+                                    <span class="info-icon"
+                                        data-tooltip="Minimum pixel brightness (0-255) to be considered part of the foreground.">i</span>
                                     <span class="value-display">(30)</span>
                                 </label>
-                                <input type="range" id="thresh-min" min="0" max="255" value="30" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                                <input type="range" id="thresh-min" min="0" max="255" value="30" class="slider"
+                                    oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
                             </div>
                             <div class="input-group">
                                 <label class="tooltip-container" for="thresh-max">Max Intensity
-                                    <span class="info-icon" data-tooltip="Maximum pixel brightness (0-255) to be considered part of the foreground.">i</span>
+                                    <span class="info-icon"
+                                        data-tooltip="Maximum pixel brightness (0-255) to be considered part of the foreground.">i</span>
                                     <span class="value-display">(220)</span>
                                 </label>
-                                <input type="range" id="thresh-max" min="0" max="255" value="220" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                                <input type="range" id="thresh-max" min="0" max="255" value="220" class="slider"
+                                    oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
                             </div>
                         </div>
                         <div class="divider"></div>
@@ -153,22 +165,30 @@
                         <div class="input-row">
                             <div class="input-group">
                                 <label class="tooltip-container" for="morph-open">Morph Open Kernel
-                                    <span class="info-icon" data-tooltip="Removes small outer noise (salt noise) from the thresholded mask. Higher value = stronger noise removal.">i</span>
+                                    <span class="info-icon"
+                                        data-tooltip="Removes small outer noise (salt noise) from the thresholded mask. Higher value = stronger noise removal.">i</span>
                                     <span class="value-display">(3)</span>
                                 </label>
-                                <input type="range" id="morph-open" min="0" max="31" step="2" value="3" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                                <input type="range" id="morph-open" min="0" max="31" step="2" value="3" class="slider"
+                                    oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
                             </div>
                             <div class="input-group">
                                 <label class="tooltip-container" for="morph-close">Morph Close Kernel
-                                    <span class="info-icon" data-tooltip="Fills small black holes (pepper noise) inside the detected foreground mask. Higher value = fills larger holes.">i</span>
+                                    <span class="info-icon"
+                                        data-tooltip="Fills small black holes (pepper noise) inside the detected foreground mask. Higher value = fills larger holes.">i</span>
                                     <span class="value-display">(5)</span>
                                 </label>
-                                <input type="range" id="morph-close" min="0" max="31" step="2" value="5" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                                <input type="range" id="morph-close" min="0" max="31" step="2" value="5" class="slider"
+                                    oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
                             </div>
                         </div>
-                        <div id="thresh-live-preview-container" style="display: none; text-align: center; margin-top: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 8px; background: var(--bg-surface-elevated);">
-                            <span style="font-size: 12px; color: var(--text-tertiary); display: block; margin-bottom: 8px;">Live Threshold Output</span>
-                            <img id="thresh-preview-img" src="" style="max-width: 100%; border-radius: var(--radius-sm);">
+                        <div id="thresh-live-preview-container"
+                            style="display: none; text-align: center; margin-top: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 8px; background: var(--bg-surface-elevated);">
+                            <span
+                                style="font-size: 12px; color: var(--text-tertiary); display: block; margin-bottom: 8px;">Live
+                                Threshold Output</span>
+                            <img id="thresh-preview-img" src=""
+                                style="max-width: 100%; border-radius: var(--radius-sm);">
                         </div>
                     </div>
 
@@ -176,42 +196,54 @@
                     <div id="panel-average" class="config-panel" style="display: none;">
                         <div class="input-row">
                             <div class="input-group">
-                                <label for="bg-ref-upload">Upload Empty Background Reference (ZIP or multiple images)</label>
-                                <input type="file" id="bg-ref-upload" class="file-input" multiple accept=".jpg,.jpeg,.png,.bmp,.zip">
+                                <label for="bg-ref-upload">Upload Empty Background Reference (ZIP or multiple
+                                    images)</label>
+                                <input type="file" id="bg-ref-upload" class="file-input" multiple
+                                    accept=".jpg,.jpeg,.png,.bmp,.zip">
                             </div>
                             <div class="input-group">
                                 <label for="avg-preview-upload">Upload Tuning Image (Internal Preview)</label>
-                                <input type="file" id="avg-preview-upload" class="file-input" accept=".jpg,.jpeg,.png,.bmp">
+                                <input type="file" id="avg-preview-upload" class="file-input"
+                                    accept=".jpg,.jpeg,.png,.bmp">
                             </div>
                         </div>
                         <div class="input-row">
                             <div class="input-group">
                                 <label class="tooltip-container" for="avg-diff-thresh">Diff Threshold
-                                    <span class="info-icon" data-tooltip="Sets the sensitivity for pixel differences against the background. Lower is more sensitive.">i</span>
+                                    <span class="info-icon"
+                                        data-tooltip="Sets the sensitivity for pixel differences against the background. Lower is more sensitive.">i</span>
                                     <span class="value-display">(85)</span>
                                 </label>
-                                <input type="range" id="avg-diff-thresh" min="0" max="255" value="85" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                                <input type="range" id="avg-diff-thresh" min="0" max="255" value="85" class="slider"
+                                    oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
                             </div>
                             <div class="input-group checkbox-group">
                                 <label class="checkbox-label tooltip-container">
                                     <input type="checkbox" id="avg-fill-holes" checked>
                                     <span class="custom-checkbox"></span>
                                     Fill Enclosed Holes
-                                    <span class="info-icon" data-tooltip="Fills any black holes/gaps completely surrounded by the detected white part mask.">i</span>
+                                    <span class="info-icon"
+                                        data-tooltip="Fills any black holes/gaps completely surrounded by the detected white part mask.">i</span>
                                 </label>
                             </div>
                         </div>
                         <div class="input-row">
                             <div class="input-group">
                                 <label class="tooltip-container" for="avg-min-ratio">Min Component Ratio
-                                    <span class="info-icon" data-tooltip="Removes noise. Drops disconnected blobs that are smaller than this ratio compared to the largest primary object. Keeps the edges clean if you have dust/specs.">i</span>
+                                    <span class="info-icon"
+                                        data-tooltip="Removes noise. Drops disconnected blobs that are smaller than this ratio compared to the largest primary object. Keeps the edges clean if you have dust/specs.">i</span>
                                     <span class="value-display">(0.10)</span>
                                 </label>
-                                <input type="range" id="avg-min-ratio" min="0.0" max="0.5" step="0.01" value="0.10" class="slider" oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
+                                <input type="range" id="avg-min-ratio" min="0.0" max="0.5" step="0.01" value="0.10"
+                                    class="slider"
+                                    oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + ')'">
                             </div>
                         </div>
-                        <div id="avg-live-preview-container" style="display: none; text-align: center; margin-top: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 8px; background: var(--bg-surface-elevated);">
-                            <span style="font-size: 12px; color: var(--text-tertiary); display: block; margin-bottom: 8px;">Live Background Subtraction Output</span>
+                        <div id="avg-live-preview-container"
+                            style="display: none; text-align: center; margin-top: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 8px; background: var(--bg-surface-elevated);">
+                            <span
+                                style="font-size: 12px; color: var(--text-tertiary); display: block; margin-bottom: 8px;">Live
+                                Background Subtraction Output</span>
                             <img id="avg-preview-img" src="" style="max-width: 100%; border-radius: var(--radius-sm);">
                         </div>
                     </div>
@@ -221,7 +253,157 @@
                     <span id="config-status" class="status-msg"></span>
                 </div>
             </div>
+
+            </div> <!-- End #page-preprocessing -->
+
+            <!-- Stage 2: Spatial Regions Card -->
+            <div id="page-spatial" class="step-page">
+              <div class="workspace-header">
+                  <h1>Spatial Region Partitioning</h1>
+                  <p>Define the areas of the frame to be analyzed separately.</p>
+              </div>
+              <div id="section-spatial" class="module-card">
+                <div class="card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                    <h3>Spatial Region Partitioning</h3>
+                    <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </div>
+                <div class="card-content">
+                    <div class="radio-group row">
+                        <label class="radio-card">
+                            <input type="radio" name="spatial_mode" value="grid" autocomplete="off">
+                            <div class="radio-content">
+                                <span class="radio-title">Automatic Quadrant Split</span>
+                                <span class="radio-desc">Split into 4 adjustable quadrants</span>
+                            </div>
+                        </label>
+                        <label class="radio-card">
+                            <input type="radio" name="spatial_mode" value="manual" checked autocomplete="off">
+                            <div class="radio-content">
+                                <span class="radio-title">Manual Region Selection</span>
+                                <span class="radio-desc">Draw up to 5 custom bounding boxes</span>
+                            </div>
+                        </label>
+                        <label class="radio-card">
+                            <input type="radio" name="spatial_mode" value="whole" autocomplete="off">
+                            <div class="radio-content">
+                                <span class="radio-title">Whole Image Analysis</span>
+                                <span class="radio-desc">Process as a single patch (BS=1)</span>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Mode: Automatic Grid Config -->
+                    <div id="panel-grid" class="config-panel" style="display: none;">
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label class="tooltip-container" for="grid-x-ratio">Horizontal Split Ratio (%)
+                                    <span class="info-icon"
+                                        data-tooltip="Percentage shift of the vertical divider from center.">i</span>
+                                    <span class="value-display">(50%)</span>
+                                </label>
+                                <input type="range" id="grid-x-ratio" min="10" max="90" value="50" class="slider"
+                                    oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + '%)'; updateSpatialPreview()">
+                            </div>
+                            <div class="input-group">
+                                <label class="tooltip-container" for="grid-y-ratio">Vertical Split Ratio (%)
+                                    <span class="info-icon"
+                                        data-tooltip="Percentage shift of the horizontal divider from center.">i</span>
+                                    <span class="value-display">(50%)</span>
+                                </label>
+                                <input type="range" id="grid-y-ratio" min="10" max="90" value="50" class="slider"
+                                    oninput="this.previousElementSibling.querySelector('.value-display').innerText = '(' + this.value + '%)'; updateSpatialPreview()">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Mode: Manual Selector (Controls) -->
+                    <div id="panel-manual" class="config-panel">
+                        <div class="help-box" style="margin-bottom: 20px;">
+                            <p><strong>Instructions:</strong> Click and drag on the image below to define inspection
+                                regions. You can draw up to 5 overlapping boxes.</p>
+                            <button class="btn btn-secondary btn-sm" id="clear-regions-btn">Clear All Regions</button>
+                        </div>
+                    </div>
+
+                    <!-- Canvas Selection Area (Shared by Manual and Grid) -->
+                    <div id="panel-canvas" class="config-panel" style="margin-top: 0px;">
+                        <div class="canvas-container"
+                            style="position: relative; cursor: crosshair; display: flex; justify-content: center; background: #000; border-radius: var(--radius-md); overflow: hidden;">
+                            <canvas id="region-canvas" style="max-width: 100%; height: auto;"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Region Summary & Export -->
+                    <div class="divider"></div>
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label for="existing-engine-select">Load Existing TensorRT Engine</label>
+                            <select id="existing-engine-select" class="select-input">
+                                <option value="">-- No engine selected --</option>
+                            </select>
+                        </div>
+                        <div class="input-group" style="display: flex; align-items: flex-end; gap: 10px;">
+                            <button class="btn btn-secondary" id="export-trt-btn">Export</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <button class="btn btn-primary" id="save-spatial-btn">Save Stage 2 & Continue</button>
+                    <span id="spatial-status" class="status-msg"></span>
+                </div>
+            </div>
+          </div> <!-- End #page-spatial -->
+
+          <div id="page-recap" class="step-page">
+              <div class="workspace-header">
+                  <h1>Parameter Recap</h1>
+                  <p>Review your session parameters and prepare for feature extraction.</p>
+              </div>
+              <div class="module-card">
+                  <div class="card-content">
+                      <p>All pre-processing and spatial logic has been saved. Please review the inspector panel on the right before proceeding.</p>
+                  </div>
+              </div>
+          </div>
+
+          <div id="page-detect" class="step-page">
+              <div class="workspace-header">
+                  <h1>Inference & Detection</h1>
+                  <p>Run the full pipeline on live or uploaded data.</p>
+              </div>
+          </div>
+
+            <!-- Blocking Overlay -->
+            <div id="blocking-overlay" class="overlay" style="display: none;">
+                <div class="overlay-content">
+                    <div id="overlay-spinner" class="spinner"></div>
+                    <h2 id="overlay-title">Processing...</h2>
+                    <p id="overlay-msg">Please wait while the system updates the engine.</p>
+                    <div class="progress-bar-container">
+                        <div id="overlay-progress" class="progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <pre id="overlay-log"
+                        style="text-align: left; font-size: 11px; max-height: 150px; overflow-y: auto; background: #000; color: #0f0; padding: 8px; border-radius: 4px; margin-top: 16px; font-family: monospace; display: none;"></pre>
+                    <button id="overlay-close-btn" class="btn btn-secondary"
+                        style="display: none; margin-top: 16px;">Close</button>
+                </div>
+            </div>
         </main>
+
+        <!-- Right Inspector Panel -->
+        <aside id="inspector">
+            <div class="inspector-header">
+                <h2>Parameters Summary</h2>
+            </div>
+            <div class="inspector-content" id="parameters-summary">
+                <!-- Dynamic parameters will go here -->
+                <div class="empty-state">
+                    <p>Parameters will appear here as you adjust them.</p>
+                </div>
+            </div>
+        </aside>
     </div>
 
     <script src="app.js"></script>

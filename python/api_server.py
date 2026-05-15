@@ -41,16 +41,46 @@ anomaly_detector: Optional[AnomalyDetector] = None
 preprocess_config = {"mode": "thresholding"}
 averaged_bg_reference: Optional[np.ndarray] = None
 
+# Global Spatial State
+spatial_config = {
+    "spatial_mode": "manual",
+    "engine": None,
+    "regions": [],
+    "grid_ratios": {"x": 50, "y": 50}
+}
+
 # Paths
 BASE_DIR = Path(__file__).parent.parent
 UPLOAD_DIR = BASE_DIR / 'uploads'
 OUTPUT_DIR = BASE_DIR / 'outputs'
 MEMORY_BANK_DIR = BASE_DIR / 'memory_banks'
+MODELS_DIR = BASE_DIR / 'models'
+ENGINE_DIR = MODELS_DIR / 'engine_files'
+BG_REF_PATH = UPLOAD_DIR / 'averaged_bg_reference.npy'
 
 # Create directories
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 MEMORY_BANK_DIR.mkdir(exist_ok=True)
+ENGINE_DIR.mkdir(exist_ok=True, parents=True)
+
+def load_bg_ref():
+    if BG_REF_PATH.exists():
+        try:
+            return np.load(str(BG_REF_PATH))
+        except Exception as e:
+            print(f"Error loading bg reference: {e}")
+    return None
+
+def save_bg_ref(ref):
+    if ref is not None:
+        try:
+            np.save(str(BG_REF_PATH), ref)
+        except Exception as e:
+            print(f"Error saving bg reference: {e}")
+
+# Initial Load
+averaged_bg_reference = load_bg_ref()
 
 
 def initialize_models():
@@ -177,6 +207,7 @@ def configure_preprocess():
                 try:
                     images = load_images_from_dir(bg_dir)
                     averaged_bg_reference = build_averaged_reference(images)
+                    save_bg_ref(averaged_bg_reference)
                 except Exception as e:
                     return jsonify({'error': f"Failed to build reference: {str(e)}"}), 400
                     
@@ -190,12 +221,14 @@ def configure_preprocess():
 @app.route('/api/preview_mask', methods=['POST'])
 def preview_mask():
     """Apply the current masking configuration to a test image and return the preview grid."""
+    global averaged_bg_reference
     try:
         test_file = request.files.get('test_image')
         if not test_file:
             return jsonify({'error': 'No test image provided'}), 400
             
         config_data = request.form.get('config')
+        return_result = request.form.get('return_result') == 'true'
         config = json.loads(config_data) if config_data else preprocess_config
         
         # Save temp test image
@@ -230,8 +263,11 @@ def preview_mask():
                         file.save(bg_dir / file.filename)
                 try:
                     images = load_images_from_dir(bg_dir)
-                    local_reference = build_averaged_reference(images)
-                except Exception:
+                    averaged_bg_reference = build_averaged_reference(images)
+                    save_bg_ref(averaged_bg_reference)
+                    local_reference = averaged_bg_reference
+                except Exception as e:
+                    print(f"Failed to build local reference in preview: {e}")
                     pass
             
             if local_reference is None:
@@ -260,9 +296,13 @@ def preview_mask():
             )
             grid = build_bg_grid(image_bgr, local_reference, mask, masked_img, config, label="Preview")
             
-        # Save output grid
-        out_path = test_dir / f"grid_{test_file.filename}.png"
-        cv2.imwrite(str(out_path), grid)
+        # Save output grid or single result
+        if return_result:
+            out_path = test_dir / f"masked_{test_file.filename}.jpg"
+            cv2.imwrite(str(out_path), masked_img)
+        else:
+            out_path = test_dir / f"grid_{test_file.filename}.png"
+            cv2.imwrite(str(out_path), grid)
         
         return send_file(out_path, mimetype='image/png')
     except Exception as e:
@@ -619,6 +659,120 @@ def get_image(session_id, filename):
         
         return send_file(image_path, mimetype='image/png')
     
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/list_engines', methods=['GET'])
+def list_engines():
+    """List all available TensorRT engine files."""
+    engines = [f.name for f in ENGINE_DIR.glob('*.engine')]
+    return jsonify({'engines': engines})
+
+
+@app.route('/api/configure_spatial', methods=['POST'])
+def configure_spatial():
+    """Receive and store the active spatial partitioning configuration."""
+    global spatial_config
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'error': 'No config provided'}), 400
+        
+        spatial_config.update(data)
+        
+        # Save to persistent JSON
+        config_path = BASE_DIR / 'pipeline_config.json'
+        session_config = {}
+        if config_path.exists():
+            try:
+                with open(config_path, 'r') as f:
+                    session_config = json.load(f)
+            except json.JSONDecodeError:
+                pass
+        
+        session_config['spatial'] = spatial_config
+        with open(config_path, 'w') as f:
+            json.dump(session_config, f, indent=4)
+            
+        return jsonify({'success': True, 'config': spatial_config})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/export_trt', methods=['POST'])
+def export_trt():
+    """Trigger TRT model export and stream status updates."""
+    import subprocess
+    import sys
+    
+    try:
+        data = request.json
+        batch_size = data.get('batch_size', 1)
+        spatial_mode = data.get('spatial_mode', 'whole')
+        pre_proc = data.get('pre_proc', 'default')
+        
+        name_root = f"dinov3_{spatial_mode}_{pre_proc}_bs{batch_size}"
+        
+        def generate():
+            yield json.dumps({'title': 'Exporting...', 'message': 'Initializing build pipeline...', 'progress': 5}) + '\n'
+            
+            # Paths and Environment
+            export_script = BASE_DIR / 'python' / 'spatial_anomaly_scripts' / 'export_dinov3_onnx_dynamic.py'
+            trt_script = BASE_DIR / 'python' / 'spatial_anomaly_scripts' / 'jetson_deploy' / 'convert_onnx_to_trt.py'
+            onnx_path = ENGINE_DIR / f'{name_root}.onnx'
+            engine_path = ENGINE_DIR / f'{name_root}.engine'
+            weights_path = MODELS_DIR / 'dinov3_vits16_pretrain_lvd1689m.pth'
+            repo_path = BASE_DIR / 'python' / 'dinov3'
+
+            def run_and_stream(cmd, step_name, start_progress, end_progress, cwd):
+                print(f"Running {step_name}: {' '.join(cmd)}")
+                process = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1, cwd=str(cwd)
+                )
+                for line in process.stdout:
+                    if line.strip():
+                        yield json.dumps({
+                            'title': f'{step_name} Logs', 
+                            'message': line.strip(), 
+                            'progress': start_progress + (end_progress - start_progress) // 2
+                        }) + '\n'
+                process.wait()
+                if process.returncode != 0:
+                    raise subprocess.CalledProcessError(process.returncode, cmd)
+
+            try:
+                # Step 1: Export ONNX
+                cmd_onnx = [
+                    sys.executable, str(export_script),
+                    '--output_path', str(onnx_path),
+                    '--batch_size', str(batch_size),
+                    '--weights_path', str(weights_path),
+                    '--repo_path', str(repo_path),
+                    '--fixed_batch'
+                ]
+                for update in run_and_stream(cmd_onnx, "ONNX Export", 5, 50, export_script.parent):
+                    yield update
+                
+                # Step 2: Convert ONNX to TensorRT using trtexec
+                cmd_trt = [
+                    'trtexec',
+                    f'--onnx={onnx_path}',
+                    f'--saveEngine={engine_path}'
+                ]
+                for update in run_and_stream(cmd_trt, "TRT Compilation", 50, 100, BASE_DIR):
+                    yield update
+                
+                yield json.dumps({'title': 'Success!', 'message': f'TRT Engine created: {engine_path.name}', 'progress': 100}) + '\n'
+
+            except subprocess.CalledProcessError as e:
+                yield json.dumps({'title': 'Export Failed', 'message': f'Process failed with code {e.returncode}. Check the logs above.', 'progress': 0}) + '\n'
+            except Exception as e:
+                yield json.dumps({'title': 'Export Error', 'message': str(e), 'progress': 0}) + '\n'
+
+        return app.response_class(generate(), mimetype='application/json')
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

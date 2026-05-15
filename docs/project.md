@@ -2,7 +2,8 @@
 
 ## Overview
 
-Building a production-ready anomaly detection web application that uses DINOv3 for feature extraction and FAISS for similarity search to detect anomalies in industrial parts. The system will have a clean black & white UI and support both real-time and batch processing workflows.
+Building a production-ready anomaly detection web application that uses DINOv3 for feature extraction and FAISS for similarity search to detect anomalies in industrial parts. The system features a **multi-page stepper UI** (Stage-by-Stage) for structured configuration, a **Live Parameter Inspector** for real-time tracking, and hardware-accelerated TensorRT inference.
+
 
 ## User Review Required
 
@@ -22,7 +23,7 @@ Building a production-ready anomaly detection web application that uses DINOv3 f
 
 ## Proposed Changes
 
-### Phase 1: Python ML Backend
+### Phase 1: Python ML Backend (Complete)
 
 #### [NEW] [requirements.txt](file:///d:/Mohit/anomaly_app/python/requirements.txt)
 Python dependencies including torch, torchvision, faiss-gpu, opencv-python, numpy, pillow, flask, and flask-cors.
@@ -66,7 +67,7 @@ Flask API server exposing endpoints:
 
 ---
 
-### Phase 2: TensorRT Conversion (Future)
+### Phase 2: TensorRT Conversion (In Progress)
 
 #### [NEW] [convert_to_tensorrt.py](file:///d:/Mohit/anomaly_app/python/convert_to_tensorrt.py)
 Script to convert PyTorch model to TensorRT:
@@ -93,16 +94,14 @@ Express server that:
 - Serves static frontend files
 - Manages upload/output directories
 
-#### [NEW] [public/index.html](file:///d:/Mohit/anomaly_app/public/index.html)
-Main UI with black & white theme:
-- Section 1: Load existing memory bank (dropdown selector) OR upload new good images (zip/folder)
-- Feature extraction button with progress indicator (if uploading new)
-- Input field for memory bank filename
-- Save memory bank button
-- Section 2: Upload test images (single/zip/folder)
-- Run detection button
-- Results display area with image gallery
-- Download results button
+#### [MODIFY] [public/index.html](file:///home/silicon/projects/anomaly_app/public/index.html)
+Main UI with modern multi-page architecture:
+- **Stepper Navigation**: Sequential stages (Pre-processing, Spatial, Memory Bank, Detect).
+- **Stage Locking**: Future stages are locked until preceding ones are configured.
+- **Section 1 (Pre-processing)**: Threshold or Background subtraction with live preview.
+- **Section 2 (Spatial Regions)**: Grid splits or Manual box drawing for localized detection.
+- **Persistent Inspector**: Right-hand panel summarizing all session parameters (Thresholds, Channels, Modes, Ratios).
+- **Export System**: Direct TensorRT conversion with specialized blue-to-black interactive button.
 
 #### [NEW] [public/style.css](file:///d:/Mohit/anomaly_app/public/style.css)
 Clean black & white styling:

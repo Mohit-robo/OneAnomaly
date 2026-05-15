@@ -77,22 +77,30 @@ Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
 ## 📖 Web Workflow
 
-### Phase 1: Teaching the AI (Memory Bank)
-1.  Go to the **"Memory Bank Setup"** card.
-2.  Select **"Create New Memory Bank"**.
-3.  **Upload**: Drag & drop a ZIP file containing *only good samples*.
-4.  **Extract**: Click the button. Watch the **Live Terminal** and **Progress Bar** as the system processes thousands of patches.
-5.  **Save**: Name your bank (e.g., `fabric_v1`) and save it.
+The platform uses a **sequential stepper architecture**. Complete each stage to unlock the next.
 
-### Phase 2: Detecting Defects
-1.  Load your saved Memory Bank.
-2.  Scroll to **"Detect Anomalies"**.
-3.  **Upload**: Select a suspect image or a batch of images.
-4.  **Run**: Click "Run Detection".
-5.  **Analyze**: 
-    -   See the **Anomaly Score** (0.0 to 1.0).
-    -   Inspect the **Heatmap Overlay** to pinpoint the defect location.
-    -   Download high-res result images.
+### Stage 1: Pre-processing Configuration
+1.  **Select Mode**: Choose between *Intensity Thresholding* or *Averaged Background Subtraction*.
+2.  **Tune Sliders**: Adjust parameters like thresholds and morphological kernels. Watch the **Live Preview** update instantly.
+3.  **Confirm**: Click "Save Configuration & Continue" to lock in basic pipeline settings and unlock Spatial Region selection.
+
+### Stage 2: Spatial Region Partitioning
+1.  **Define Areas**: Choose *Automatic Quadrant Split* for grid analysis or *Manual Selection* to draw specific ROIs.
+2.  **Export**: Click **Export** to compile the DINOv3 pipeline into an optimized TensorRT engine for your specific batch size.
+
+### Stage 3: Memory Bank Creation
+1.  **Upload**: Drag & drop a ZIP file containing *only good samples*.
+2.  **Extract**: Click "Extract Features". The system processes the good images through your custom Pre-processing and Spatial filters.
+3.  **Save**: Name and save your Memory Bank (e.g., `fabric_v1`).
+
+### Stage 4: Inference & Detection
+1.  **Load**: Select your saved Memory Bank.
+2.  **Test**: Upload suspect images or a batch folder.
+3.  **Analyze**: 
+    -   Review **Anomaly Scores** for both the whole image and specific regions.
+    -   Inspect **Heatmap Overlays** in the result gallery.
+    -   Download a full ZIP report including CSV metadata.
+
 
 ---
 

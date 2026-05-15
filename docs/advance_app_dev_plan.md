@@ -17,7 +17,7 @@ The notes define **5 major phases** of new capability to build on top of this fo
 
 ---
 
-## Phase 1 — Pre-processing Setup
+## Phase 1 — Pre-processing Setup (Complete)
 
 **Goal:** Let users define how background is removed / regions of interest are masked before features are extracted. This directly controls what DINOv3 sees.
 
@@ -54,7 +54,7 @@ This is the production path. Full sub-pipeline:
    - Load exported model in memory for inference during later phases and save it for future use
 
 
-## Phase 2 — Spatial Region Selection
+## Phase 2 — Spatial Region Selection (Complete)
 
 **Goal:** Divide the image into sub-regions so each region gets its own memory bank/ or feature at 'n' index in memory bank and anomaly score, enabling spatially-aware detection.
 

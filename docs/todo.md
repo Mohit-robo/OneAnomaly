@@ -10,22 +10,24 @@
 - [x] `test_preprocess_pipeline.py` — end-to-end: preprocessing → ONNX → FAISS → heatmap with per-image latency.
 
 ### Integration into App (Next)
-- [ ] Add UI panel for Threshold Controls (min/max intensity, channel selection, morph open/close).
-- [ ] Add UI panel for Background Subtraction Controls (diff threshold, morph open/close, fill holes, min component).
-- [ ] Add support to upload a reference "blank" folder/images for averaged BG subtraction.
-- [ ] Implement live preview of threshold/bg-subtraction masked result.
-- [ ] Implement image preprocessing to generate binary BG mask before feature extraction in api_server.py/feature_extractor.py.
+- [X] Add UI panel for Threshold Controls (min/max intensity, channel selection, morph open/close).
+- [X] Add UI panel for Background Subtraction Controls (diff threshold, morph open/close, fill holes, min component).
+- [X] Add support to upload a reference "blank" folder/images for averaged BG subtraction.
+- [X] Implement live preview of threshold/bg-subtraction masked result.
+- [X] Implement image preprocessing to generate binary BG mask before feature extraction in api_server.py/feature_extractor.py.
 
 ## Stage 2: Phase 2 — Spatial Regions
 
 **Reference** - python/spatial_anomaly_scripts
 
-- [ ] Add UI toggles for Region Selection Modes (Mode A: 2x2 Grid, Mode B: Draw Regions, Mode C: No Splitting).
-- [ ] Implement Mode A: 2x2 Grid logic on background subtracted image.
-- [ ] Implement Mode B: Canvas overlay for drawing up to 5 bounding polygons/rectangles + labeling.
-- [ ] Implement Mode C: Single patch processing.
-- [ ] Build preview section showing how sample images will be tiled + display region count, patch resolution, and expected feature vector size.
-- [ ] Implement DINOv3 exporter: Calculate batch size based on regions and export ONNX to TensorRT (ensure user has option to use previously saved model).
+- [x] Add UI toggles for Region Selection Modes (Mode A: 2x2 Grid, Mode B: Draw Regions, Mode C: No Splitting).
+- [x] Implement Mode A: 2x2 Grid logic on background subtracted image.
+- [x] Implement Mode B: Canvas overlay for drawing up to 5 bounding polygons/rectangles + labeling.
+- [x] Implement Mode C: Single patch processing.
+- [x] Build preview section showing how sample images will be tiled.
+- [x] Implement DINOv3 exporter: Export ONNX to TensorRT with "Export" UI button.
+- [x] **New**: Multi-page (Step-by-Step) UI architecture with stage locking.
+- [x] **New**: Persistent Right Inspector Panel for "on-the-go" parameter tracking throughout the session.
 
 ## Stage 3: Phase 3 — Memory Bank Creation
 

@@ -38,7 +38,7 @@ A premium, industrial-grade **Web Application** for detecting surfacing defects 
 ### 1. Installation
 ```bash
 # Clone the repository
-git clone https://github.com/Mohit-robo/anomaly_app.git
+git clone https://github.com/Mohit-robo/OneAnomaly.git
 cd anomaly_app
 
 # Install Python Dependencies (Backend)

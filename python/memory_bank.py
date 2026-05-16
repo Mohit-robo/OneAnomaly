@@ -243,16 +243,119 @@ class MemoryBank:
         self.is_fitted = False
         print("Memory bank cleared")
 
-if __name__ == "__main__":
+class SpatialMemoryBank:
+    """Manages multiple memory banks for spatial regions."""
     
-    mb = MemoryBank()
+    def __init__(
+        self,
+        num_regions: int = 1,
+        feature_dim: int = 384,
+        use_gpu: bool = True,
+        coreset_sampling_ratio: float = 1.0
+    ):
+        self.num_regions = num_regions
+        self.feature_dim = feature_dim
+        self.use_gpu = use_gpu
+        self.coreset_sampling_ratio = coreset_sampling_ratio
+        self.regions_coords = [] # List of [x, y, w, h]
+        
+        self.banks = {
+            i: MemoryBank(feature_dim, use_gpu, coreset_sampling_ratio)
+            for i in range(num_regions)
+        }
+    
+    @property
+    def is_fitted(self) -> bool:
+        """Check if any of the underlying banks are fitted."""
+        return any(bank.is_fitted for bank in self.banks.values())
+        
+    def add_features_batch(self, features_batch: np.ndarray, apply_coreset: bool = True):
+        """
+        Add features from a batch of regions.
+        features_batch shape: (num_images * num_regions, feature_dim) or similar
+        We assume features are ordered: [img1_reg1, img1_reg2, ..., img2_reg1, img2_reg2, ...]
+        """
+        if len(features_batch) % self.num_regions != 0:
+            raise ValueError(f"Batch size {len(features_batch)} is not divisible by num_regions {self.num_regions}")
+            
+        num_images = len(features_batch) // self.num_regions
+        
+        # features_batch ordering: [img1_reg1_p1...pP, img1_reg2_p1...pP, ..., imgN_regR_p1...pP]
+        # We need to reshape safely to (num_images, num_regions, num_patches, feature_dim)
+        
+        # Total patches across all regions and images
+        total_items = features_batch.shape[0]
+        num_patches = total_items // (num_images * self.num_regions)
+        
+        features_reshaped = features_batch.reshape(num_images, self.num_regions, num_patches, -1)
+        
+        for region_idx in range(self.num_regions):
+            print(f"\nProcessing Memory Bank for Region {region_idx}...")
+            region_features = features_reshaped[:, region_idx, :, :]
+            # Flatten patches for all images in this region -> (num_images * num_patches, feature_dim)
+            region_features_flat = region_features.reshape(-1, self.feature_dim)
+            self.banks[region_idx].add_features(region_features_flat, apply_coreset)
+            
+    def query(self, features_batch: np.ndarray, k: int = 1):
+        """
+        Query the memory bank for a batch of regions.
+        features_batch shape: (num_regions, num_patches_per_region, feature_dim)
+        """
+        if features_batch.shape[0] != self.num_regions:
+            raise ValueError(f"Input features have {features_batch.shape[0]} regions, but bank has {self.num_regions}")
+            
+        all_distances = []
+        all_indices = []
+        
+        for i in range(self.num_regions):
+            region_features = features_batch[i] # (num_patches_per_region, feature_dim)
+            dist, idx = self.banks[i].query(region_features, k=k)
+            all_distances.append(dist)
+            all_indices.append(idx)
+            
+        # Stack back (num_regions, num_patches_per_region, k)
+        return np.array(all_distances), np.array(all_indices)
+            
+    def save(self, filepath: str):
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            'num_regions': self.num_regions,
+            'regions_coords': self.regions_coords,
+            'feature_dim': self.feature_dim,
+            'coreset_sampling_ratio': self.coreset_sampling_ratio,
+            'banks_data': {}
+        }
+        for idx, bank in self.banks.items():
+            if bank.is_fitted:
+                data['banks_data'][idx] = bank.features
+                
+        with open(filepath, 'wb') as f:
+            pickle.dump(data, f)
+            
+        print(f"SpatialMemoryBank saved to {filepath} with {self.num_regions} regions.")
 
-    features = np.random.random((100, 384))
-    mb.add_features(features)
-
-    mb.save("test_memory_bank.pkl")
-
-    mb2 = MemoryBank()
-    mb2.load("test_memory_bank.pkl")
-
-    print('Success' if mb.feature_count() == mb2.feature_count() else 'Failure')
+    def load(self, filepath: str):
+        if not Path(filepath).exists():
+            raise FileNotFoundError(f"File not found: {filepath}")
+            
+        with open(filepath, 'rb') as f:
+            data = pickle.load(f)
+            
+        self.num_regions = data.get('num_regions', 1)
+        self.regions_coords = data.get('regions_coords', [])
+        self.feature_dim = data.get('feature_dim', 384)
+        self.coreset_sampling_ratio = data.get('coreset_sampling_ratio', 1.0)
+        
+        self.banks = {}
+        for i in range(self.num_regions):
+            bank = MemoryBank(self.feature_dim, self.use_gpu, self.coreset_sampling_ratio)
+            features = data.get('banks_data', {}).get(i)
+            if features is not None:
+                bank.features = features
+                bank._build_index()
+            self.banks[i] = bank
+            
+        print(f"SpatialMemoryBank loaded from {filepath} with {self.num_regions} regions.")
+        
+    def feature_count(self):
+        return sum(bank.feature_count() for bank in self.banks.values())

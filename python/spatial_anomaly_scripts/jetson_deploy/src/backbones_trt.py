@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from sklearn.decomposition import PCA
 import tensorrt as trt
-from cuda import cudart
+import cuda.bindings.runtime as cudart
 
 class DINOv3TensorRTWrapper:
     """
@@ -101,12 +101,17 @@ class DINOv3TensorRTWrapper:
             # Assumed to be RGB from the inference script
             pass
         
-        # For TensorRT with fixed input size, resize to exact dimensions
+        # For TensorRT with fixed input size, resize to exact compiled engine dimensions
         ps = self.patch_size
-        target_size = (self.smaller_edge_size // ps) * ps
-        
+        if hasattr(self, 'input_shape') and self.input_shape and len(self.input_shape) >= 4:
+            target_h = self.input_shape[-2]
+            target_w = self.input_shape[-1]
+        else:
+            target_h = (self.smaller_edge_size // ps) * ps
+            target_w = target_h
+            
         # Resize to exact target dimensions
-        img = cv2.resize(img, (target_size, target_size), interpolation=cv2.INTER_CUBIC)
+        img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
         
         # Normalization (ImageNet defaults)
         img = img.astype(np.float32) / 255.0
@@ -120,7 +125,7 @@ class DINOv3TensorRTWrapper:
         # Add batch dimension
         image_array = np.expand_dims(img, axis=0).astype(np.float32)
         
-        grid_size = (target_size // ps, target_size // ps)
+        grid_size = (target_h // ps, target_w // ps)
         return image_array, grid_size
     
     def split_image(self, image, top_ratio=0.4, top_center_ratio=0.6):
@@ -295,92 +300,79 @@ class DINOv3TensorRTWrapper:
         """
         batch_size = image_array.shape[0]
         
-        if batch_size == 1:
-            # Fallback to single inference
-            features = self.extract_features(image_array)
-            return [features]
+        # Ensure contiguous array
+        image_array = np.ascontiguousarray(image_array)
         
-        elif batch_size == 2:
-            # Batch inference for spatial partitioning
-            # Ensure contiguous array
-            image_array = np.ascontiguousarray(image_array)
-            
-            # Calculate batch sizes
-            batch_input_size = batch_size * np.prod(self.input_shape[1:]) * np.dtype(np.float32).itemsize
-            batch_output_size = batch_size * np.prod(self.output_shape[1:]) * np.dtype(np.float32).itemsize
-            
-            # Allocate temporary batch buffers if needed
-            # Note: For production, you might want to pre-allocate these in __init__
-            err, d_input_batch = cudart.cudaMalloc(batch_input_size)
-            if err != cudart.cudaError_t.cudaSuccess:
-                raise RuntimeError(f"Failed to allocate batch input device memory: {err}")
-            
-            err, d_output_batch = cudart.cudaMalloc(batch_output_size)
-            if err != cudart.cudaError_t.cudaSuccess:
-                cudart.cudaFree(d_input_batch)
-                raise RuntimeError(f"Failed to allocate batch output device memory: {err}")
-            
-            try:
-                # Copy input to device
-                err, = cudart.cudaMemcpyAsync(
-                    d_input_batch,
-                    image_array.ctypes.data,
-                    batch_input_size,
-                    cudart.cudaMemcpyKind.cudaMemcpyHostToDevice,
-                    self.stream
-                )
-                if err != cudart.cudaError_t.cudaSuccess:
-                    raise RuntimeError(f"Failed to copy batch input to device: {err}")
-                
-                # Set tensor addresses
-                self.context.set_tensor_address(self.input_name, d_input_batch)
-                self.context.set_tensor_address(self.output_name, d_output_batch)
-                
-                # Execute inference
-                success = self.context.execute_async_v3(self.stream)
-                if not success:
-                    raise RuntimeError("TensorRT batch inference failed")
-                
-                # Allocate host memory for output
-                output_shape_batch = (batch_size,) + self.output_shape[1:]
-                output_array = np.empty(output_shape_batch, dtype=np.float32)
-                
-                # Copy output to host
-                err, = cudart.cudaMemcpyAsync(
-                    output_array.ctypes.data,
-                    d_output_batch,
-                    batch_output_size,
-                    cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost,
-                    self.stream
-                )
-                if err != cudart.cudaError_t.cudaSuccess:
-                    raise RuntimeError(f"Failed to copy batch output to host: {err}")
-                
-                # Synchronize stream
-                err, = cudart.cudaStreamSynchronize(self.stream)
-                if err != cudart.cudaError_t.cudaSuccess:
-                    raise RuntimeError(f"Failed to synchronize stream: {err}")
-                
-                # Process each batch item
-                features_list = []
-                for i in range(batch_size):
-                    features = output_array[i]  # (N, C)
-                    
-                    # L2 normalize features
-                    norms = np.linalg.norm(features, axis=1, keepdims=True)
-                    features = features / (norms + 1e-8)
-                    
-                    features_list.append(features.astype(np.float32))
-                
-                return features_list
-                
-            finally:
-                # Clean up batch buffers
-                cudart.cudaFree(d_input_batch)
-                cudart.cudaFree(d_output_batch)
+        # Calculate batch sizes
+        batch_input_size = batch_size * np.prod(self.input_shape[1:]) * np.dtype(np.float32).itemsize
+        batch_output_size = batch_size * np.prod(self.output_shape[1:]) * np.dtype(np.float32).itemsize
         
-        else:
-            raise ValueError(f"Unsupported batch size: {batch_size}. Only 1 or 2 supported.")
+        # Allocate temporary batch buffers
+        err, d_input_batch = cudart.cudaMalloc(batch_input_size)
+        if err != cudart.cudaError_t.cudaSuccess:
+            raise RuntimeError(f"Failed to allocate batch input device memory: {err}")
+        
+        err, d_output_batch = cudart.cudaMalloc(batch_output_size)
+        if err != cudart.cudaError_t.cudaSuccess:
+            cudart.cudaFree(d_input_batch)
+            raise RuntimeError(f"Failed to allocate batch output device memory: {err}")
+        
+        try:
+            # Copy input to device
+            err, = cudart.cudaMemcpyAsync(
+                d_input_batch,
+                image_array.ctypes.data,
+                batch_input_size,
+                cudart.cudaMemcpyKind.cudaMemcpyHostToDevice,
+                self.stream
+            )
+            if err != cudart.cudaError_t.cudaSuccess:
+                raise RuntimeError(f"Failed to copy batch input to device: {err}")
+            
+            # Set tensor addresses
+            self.context.set_tensor_address(self.input_name, d_input_batch)
+            self.context.set_tensor_address(self.output_name, d_output_batch)
+            
+            # Execute inference
+            success = self.context.execute_async_v3(self.stream)
+            if not success:
+                raise RuntimeError("TensorRT batch inference failed")
+            
+            # Allocate host memory for output
+            output_shape_batch = (batch_size,) + self.output_shape[1:]
+            output_array = np.empty(output_shape_batch, dtype=np.float32)
+            
+            # Copy output to host
+            err, = cudart.cudaMemcpyAsync(
+                output_array.ctypes.data,
+                d_output_batch,
+                batch_output_size,
+                cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost,
+                self.stream
+            )
+            if err != cudart.cudaError_t.cudaSuccess:
+                raise RuntimeError(f"Failed to copy batch output to host: {err}")
+            
+            # Synchronize stream
+            cudart.cudaStreamSynchronize(self.stream)
+            
+            # Process each batch item
+            features_list = []
+            for i in range(batch_size):
+                features = output_array[i]  # (N, C)
+                
+                # L2 normalize features
+                norms = np.linalg.norm(features, axis=1, keepdims=True)
+                features = features / (norms + 1e-8)
+                
+                features_list.append(features.astype(np.float32))
+            
+            return features_list
+            
+        finally:
+            # Clean up batch buffers
+            cudart.cudaFree(d_input_batch)
+            cudart.cudaFree(d_output_batch)
     
     def compute_background_mask(self, features, grid_size, threshold=10.0, masking_type=True):
         """

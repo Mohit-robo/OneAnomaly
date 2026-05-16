@@ -1,305 +1,161 @@
-# Anomaly Detection Web App - Implementation Plan
+# Anomaly Detection Web App — Project Reference
 
 ## Overview
 
-Building a production-ready anomaly detection web application that uses DINOv3 for feature extraction and FAISS for similarity search to detect anomalies in industrial parts. The system features a **multi-page stepper UI** (Stage-by-Stage) for structured configuration, a **Live Parameter Inspector** for real-time tracking, and hardware-accelerated TensorRT inference.
-
-
-## User Review Required
-
-> [!IMPORTANT]
-> **Model Selection**: Using DINOv3 ViT-S/16 distilled model. The model will be loaded via PyTorch Hub from the cloned DINOv3 repository initially, then converted to TensorRT for production.
-
-> [!IMPORTANT]
-> **Technology Stack**: 
-> - Backend: Node.js with Express
-> - Python Bridge: Flask API for ML operations
-> - Frontend: Vanilla HTML/CSS/JavaScript
-> - ML: PyTorch → TensorRT conversion pipeline
-> - Storage: Pickle files for feature banks
-
-> [!WARNING]
-> **FAISS-GPU Requirement**: This requires NVIDIA GPU with CUDA support. The application will not work on CPU-only systems for production use.
-
-## Proposed Changes
-
-### Phase 1: Python ML Backend (Complete)
-
-#### [NEW] [requirements.txt](file:///d:/Mohit/anomaly_app/python/requirements.txt)
-Python dependencies including torch, torchvision, faiss-gpu, opencv-python, numpy, pillow, flask, and flask-cors.
-
-#### [NEW] [test_dinov3_pytorch.py](file:///d:/Mohit/anomaly_app/python/test_dinov3_pytorch.py)
-Standalone PyTorch testing script that:
-- Clones DINOv3 repository and loads ViT-S/16 distilled model via torch.hub
-- Processes a folder of images
-- Extracts patch-wise features (using intermediate layer outputs)
-- Saves feature visualizations for manual verification
-- Outputs feature dimensions and processing time
-
-#### [NEW] [feature_extractor.py](file:///d:/Mohit/anomaly_app/python/feature_extractor.py)
-Core feature extraction module that:
-- Loads DINOv3 ViT-S/16 distilled model (PyTorch or TensorRT)
-- Implements patch-wise feature extraction
-- Handles batch processing
-- **Supports recursive image search in nested directories (flat or nested structure)**
-
-#### [NEW] [memory_bank.py](file:///d:/Mohit/anomaly_app/python/memory_bank.py)
-PatchCore-inspired memory bank implementation:
-- Stores good image features using coreset subsampling
-- Implements FAISS index for fast similarity search
-- Supports save/load functionality via pickle
-- Provides methods for adding features and querying
-
-#### [NEW] [anomaly_detector.py](file:///d:/Mohit/anomaly_app/python/anomaly_detector.py)
-Anomaly detection and visualization:
-- Performs FAISS similarity search on test images
-- Generates anomaly heatmaps
-- Overlays heatmaps on original images
-- Returns anomaly scores and visualizations
-
-#### [NEW] [api_server.py](file:///d:/Mohit/anomaly_app/python/api_server.py)
-Flask API server exposing endpoints:
-- POST `/extract_features` - Extract features from good images (**Handling Zip files with flat or nested structure**)
-- POST `/save_memory_bank` - Save feature bank to disk
-- POST `/load_memory_bank` - Load existing feature bank
-- POST `/detect_anomalies` - Process test images (**Supports Zip, multiple files, or single image**)
-- GET `/health` - Health check endpoint
+A production-ready **web application** for detecting surface anomalies in industrial parts using Meta's **DINOv3 Vision Transformer** + **FAISS** for memory-bank similarity search. The system features a multi-stage stepper UI, live parameter inspection, hardware-accelerated **TensorRT** inference, and an interactive heatmap analysis workspace.
 
 ---
 
-### Phase 2: TensorRT Conversion (In Progress)
+## Technology Stack
 
-#### [NEW] [convert_to_tensorrt.py](file:///d:/Mohit/anomaly_app/python/convert_to_tensorrt.py)
-Script to convert PyTorch model to TensorRT:
-- Exports DINOv3 ViT-S/16 to ONNX format
-- Converts ONNX to TensorRT engine
-- Validates output consistency
-- Benchmarks performance
+| Layer | Technology |
+|---|---|
+| **Frontend** | Vanilla HTML5 / CSS3 / JavaScript |
+| **Backend (ML API)** | Python / Flask / Flask-CORS |
+| **Feature Extraction** | DINOv3 ViT-S/16 (PyTorch → TensorRT) |
+| **Similarity Search** | FAISS (GPU-accelerated) |
+| **Image Processing** | OpenCV, scipy, matplotlib |
+| **Engine Files** | TensorRT `.engine` (ONNX intermediate) |
 
-#### [NEW] [test_dinov3_tensorrt.py](file:///d:/Mohit/anomaly_app/python/test_dinov3_tensorrt.py)
-TensorRT testing script similar to PyTorch test but using TensorRT engine.
-
----
-
-### Phase 3: Node.js Web Application
-
-#### [NEW] [package.json](file:///d:/Mohit/anomaly_app/package.json)
-Node.js dependencies: express, multer (file uploads), archiver/unzipper, axios, uuid.
-
-#### [NEW] [server.js](file:///d:/Mohit/anomaly_app/server.js)
-Express server that:
-- Handles file uploads (zip, folders, single images)
-- Manages session IDs
-- Proxies requests to Python API
-- Serves static frontend files
-- Manages upload/output directories
-
-#### [MODIFY] [public/index.html](file:///home/silicon/projects/anomaly_app/public/index.html)
-Main UI with modern multi-page architecture:
-- **Stepper Navigation**: Sequential stages (Pre-processing, Spatial, Memory Bank, Detect).
-- **Stage Locking**: Future stages are locked until preceding ones are configured.
-- **Section 1 (Pre-processing)**: Threshold or Background subtraction with live preview.
-- **Section 2 (Spatial Regions)**: Grid splits or Manual box drawing for localized detection.
-- **Persistent Inspector**: Right-hand panel summarizing all session parameters (Thresholds, Channels, Modes, Ratios).
-- **Export System**: Direct TensorRT conversion with specialized blue-to-black interactive button.
-
-#### [NEW] [public/style.css](file:///d:/Mohit/anomaly_app/public/style.css)
-Clean black & white styling:
-- Minimalist design with proper spacing
-- Button styles with hover effects
-- Responsive layout
-- Image gallery grid
-- Progress indicators
-
-#### [NEW] [public/app.js](file:///d:/Mohit/anomaly_app/public/app.js)
-Frontend JavaScript:
-- File upload handling
-- API communication
-- Progress tracking
-- Results rendering
-- Download functionality
-- Error handling
+> **Note**: The app is served entirely by the Flask server on port **5000**. There is no separate Node.js proxy — `server.js` is not used in production.
 
 ---
 
-### Phase 4: Project Structure
+## Architecture
 
-#### [NEW] [.gitignore](file:///d:/Mohit/anomaly_app/.gitignore)
-Ignore node_modules, Python cache, uploads, outputs, model weights, etc.
-
-#### [NEW] [README.md](file:///d:/Mohit/anomaly_app/README.md)
-Comprehensive documentation:
-- Project overview
-- Installation instructions
-- Usage guide
-- API documentation
-- Troubleshooting
-
-Directory structure:
 ```
 anomaly_app/
-├── python/                    # Python ML backend
-│   ├── api_server.py
-│   ├── feature_extractor.py
-│   ├── memory_bank.py
-│   ├── anomaly_detector.py
-│   ├── test_dinov3_pytorch.py
-│   ├── test_dinov3_tensorrt.py
-│   ├── convert_to_tensorrt.py
+├── public/                  # Frontend (served by Flask as static)
+│   ├── index.html           # Main single-page application
+│   ├── style.css            # Premium dark-mode design system
+│   └── app.js               # All frontend logic (stepper, API calls, viz)
+│
+├── python/                  # Python ML backend
+│   ├── api_server.py        # Flask REST API (all endpoints)
+│   ├── feature_extractor.py # DINOv3 TRT / PyTorch feature extraction
+│   ├── memory_bank.py       # MemoryBank + SpatialMemoryBank (FAISS)
+│   ├── anomaly_detector.py  # Detection, heatmap generation, file saving
+│   ├── dinov3/              # Meta DINOv3 repository (git submodule)
+│   ├── src/                 # Preprocessing test scripts
+│   │   ├── test_thresholding.py
+│   │   ├── test_bg_subtraction.py
+│   │   └── test_preprocess_pipeline.py
 │   └── requirements.txt
-├── public/                    # Frontend files
-│   ├── index.html
-│   ├── style.css
-│   └── app.js
-├── uploads/                   # User uploaded files
-│   ├── good/
-│   └── test/
-├── outputs/                   # Processing results
-│   └── sessions/
-├── memory_banks/              # Saved feature banks
-├── models/                    # Model weights (TensorRT)
-├── server.js                  # Node.js server
-├── package.json
-├── .gitignore
-└── README.md
+│
+├── models/
+│   ├── dinov3_vits16_pretrain_lvd1689m.pth   # PyTorch weights
+│   └── engine_files/        # TensorRT compiled engines (.engine, .onnx)
+│       ├── dinov3_manual_int30-255_bs3.engine
+│       └── ...
+│
+├── memory_banks/            # Saved FAISS index banks (.pkl)
+├── uploads/                 # Temporarily stored uploads
+│   └── temp_test/           # Test images before inference
+├── outputs/
+│   └── sessions/            # Per-run results
+│       └── <session_id>/
+│           ├── <stem>_source.png     # Clean input image
+│           ├── <stem>_overlay.png    # Heatmap baked over source
+│           ├── <stem>_heatmap.png    # Raw JET colormap heatmap
+│           └── <stem>_annotated.png  # Source with score annotation
+└── docs/
 ```
 
-## User Guide & File Structure
+---
 
-### Zip File Structure
-The application supports both **flat** and **nested** directory structures within uploaded ZIP files. The system recursively searches for images.
+## API Endpoints
 
-**Option A: Flat Structure (Recommended)**
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/health` | Health check, model loaded status |
+| GET | `/api/logs` | Stream backend logs to frontend terminal |
+| POST | `/api/configure_preprocess` | Save preprocessing config (threshold/bg-sub) |
+| POST | `/api/configure_spatial` | Save spatial region config + selected engine |
+| POST | `/api/extract_features` | Run feature extraction on good images → build memory bank |
+| POST | `/api/save_memory_bank` | Persist current FAISS index to disk |
+| POST | `/api/load_memory_bank` | Load a named memory bank from disk |
+| GET | `/api/list_memory_banks` | List all `.pkl` files in `memory_banks/` |
+| GET | `/api/list_engines` | List all `.engine` files in `models/engine_files/` |
+| POST | `/api/detect_anomalies` | Run inference; returns scores + session_id |
+| GET | `/api/get_image/<session>/<file>` | Serve a result image from a session directory |
+| GET | `/api/download_results/<session>` | Download session output as ZIP |
+| POST | `/api/export_engine` | Stream TensorRT export (SSE) |
+| POST | `/api/preview_preprocess` | Generate preprocessing preview grid |
+| GET | `/api/spatial_config` | Return current spatial configuration |
+
+---
+
+## UI Workflow (4-Stage Stepper)
+
+### Stage 1 — Preprocessing
+- Choose **Intensity Thresholding** or **Averaged Background Subtraction**
+- Tune morphological kernel sizes, threshold bounds
+- Live preview grid shows masked result on sample images
+- Save config → unlocks Stage 2
+
+### Stage 2 — Spatial Region Definition
+- Choose **Manual Draw** (interactive canvas), **2×2 Quadrant**, or **No Split**
+- Select a TensorRT engine (batch size must match region count)
+- **Export** button compiles ONNX → TRT engine with SSE progress stream
+- Save regions → unlocks Stage 3
+
+### Stage 3 — Memory Bank
+- Upload good sample images (ZIP or multi-file)
+- **Extract Features**: runs preprocessing → spatial tiling → DINOv3 → FAISS index
+- **Skip & Use Existing**: load a previously built bank directly
+- Save bank with a named identifier → unlocks Stage 4
+
+### Stage 4 — Detection
+- Upload single test image or batch ZIP
+- Preprocessing config applied automatically (same as Stage 1)
+- Performs FAISS similarity search → anomaly score per region
+- **Detailed Analysis view**:
+  - Left: `_source.png` (clean input reference)
+  - Right: `_overlay.png` (JET heatmap baked over original — pre-computed by backend)
+  - Heatmap alpha slider adjusts CSS `opacity` of overlay image (no canvas)
+  - Centered anomaly summary card (score + NORMAL/ANOMALY badge)
+  - Badge and card color are reactive to the threshold slider
+
+---
+
+## Key Design Decisions
+
+### Why no canvas for the heatmap?
+The original implementation used an HTML `<canvas>` to blend the source image and heatmap at runtime. This caused persistent black-box rendering due to race conditions (image `complete` state unreliable in setTimeout), potential canvas CORS taint, and `naturalWidth === 0` early-exit paths. The fix was to remove the canvas entirely and use a plain `<img>` pointing at the pre-baked `_overlay.png` from the backend.
+
+### Why SpatialMemoryBank?
+Standard FAISS indexes store all patch features flat. `SpatialMemoryBank` partitions them by region so that anomaly scores can be computed per spatial zone (e.g., top-left vs. bottom-right), enabling localized defect reporting.
+
+### Why TensorRT batch size matters?
+The spatial pipeline extracts features from `N` regions per image. The TensorRT engine batch size must match `N` exactly so all regions are processed in a single forward pass. Mismatched batch sizes cause shape errors or silent incorrect outputs.
+
+### Preprocessing consistency
+The same preprocessing config (mode, thresholds, morphological params) saved in Stage 1 is re-applied to test images in Stage 4. This ensures the decision boundary in feature space matches the training distribution (good images were also preprocessed).
+
+---
+
+## Global State (api_server.py)
+
+```python
+feature_extractor   # DINOv3 feature extractor (TRT or PyTorch)
+memory_bank         # Loaded FAISS bank (SpatialMemoryBank)
+anomaly_detector    # AnomalyDetector instance wrapping above
+last_initialized_engine  # Tracks which engine is loaded (avoids redundant init)
+preprocess_config   # Dict: mode, thresholds, morphology params
+spatial_config      # Dict: spatial_mode, engine, regions, grid_ratios
+averaged_bg_reference  # numpy array — loaded from disk on startup
 ```
-my_images.zip
-├── image1.jpg
-├── image2.png
-└── image3.jpg
-```
 
-**Option B: Nested Structure**
-```
-my_dataset.zip
-├── train/
-│   ├── good/
-│   │   ├── img1.jpg
-│   │   └── img2.jpg
-│   └── bad/  (ignored during good image upload if you only select the good folder/zip)
-```
-*Note: When uploading "Good Images" for training, the system will process ALL images found in the zip. Ensure the zip contains ONLY good images.*
+---
 
-### Workflow
-1. **Setup**: Ensure DINOv3 weights are downloaded to `models/` directory.
-2. **Training (Memory Bank)**:
-   - Select "Create New Memory Bank".
-   - Upload a ZIP file containing ONLY normal/good images.
-   - Click "Extract Features".
-   - Save the memory bank with a unique name.
-3. **Detection**:
-   - Load your saved memory bank.
-   - Upload test images (Single image, multiple files, or ZIP).
-   - Click "Run Detection".
-   - View results or download full report.
+## Session Output Files
 
-## Verification Plan
+For each detected image `<stem>.png` in session `<session_id>`:
 
-### Automated Tests
-
-#### 1. PyTorch Model Testing
-**Command**: 
-```bash
-cd d:/Mohit/anomaly_app/python
-python test_dinov3_pytorch.py --input_folder <path_to_test_images> --output_folder <path_to_output>
-```
-**Expected Output**:
-- Feature maps saved as images
-- Console output showing feature dimensions (should be 384 for ViT-S/16)
-- Processing time per image
-- No errors during model loading or inference
-
-**Manual Verification**: You will review the output feature visualizations to ensure they look reasonable.
-
-#### 2. Memory Bank Functionality
-**Command**:
-```bash
-cd d:/Mohit/anomaly_app/python
-python -c "from memory_bank import MemoryBank; import numpy as np; mb = MemoryBank(); mb.add_features(np.random.rand(100, 384)); mb.save('test_bank.pkl'); mb2 = MemoryBank(); mb2.load('test_bank.pkl'); print('Success' if mb2.feature_count() == 100 else 'Failed')"
-```
-**Expected Output**: "Success"
-
-#### 3. Python API Server
-**Command**:
-```bash
-cd d:/Mohit/anomaly_app/python
-python api_server.py
-```
-Then in another terminal:
-```bash
-curl http://localhost:5000/health
-```
-**Expected Output**: JSON response with status "healthy"
-
-#### 4. Node.js Server
-**Command**:
-```bash
-cd d:/Mohit/anomaly_app
-npm install
-npm start
-```
-**Expected Output**: Server running on http://localhost:3000
-
-### Manual Verification
-
-#### 1. End-to-End Workflow Test
-**Steps**:
-1. Start Python API server: `cd python && python api_server.py`
-2. Start Node.js server: `npm start`
-3. Open browser to http://localhost:3000
-4. Upload a zip file with 10-20 good images
-5. Click "Extract Features" button
-6. Enter a filename (e.g., "test_run_1") and click "Save Memory Bank"
-7. Verify file appears in memory_banks/ directory
-8. Upload a test image with potential anomaly
-9. Click "Run Detection"
-10. Verify anomaly heatmap is displayed
-11. Click "Download Results"
-
-**Expected Results**:
-- All uploads complete without errors
-- Progress indicators work correctly
-- Anomaly heatmap overlays on original image
-- Download produces a zip file with results
-
-#### 2. Feature Extraction Verification
-**You will manually verify**:
-- Feature extraction output images show meaningful patterns
-- Processing time is reasonable (< 1 second per image on GPU)
-- Memory bank file size is appropriate
-
-#### 3. TensorRT Conversion (Future Phase)
-**Steps**:
-1. Run conversion script: `python convert_to_tensorrt.py`
-2. Run TensorRT test: `python test_dinov3_tensorrt.py --input_folder <path>`
-3. Compare outputs with PyTorch version
-4. Benchmark performance improvement
-
-**You will manually verify**:
-- TensorRT outputs match PyTorch outputs (within tolerance)
-- Performance improvement is significant (3-5x faster)
-
-## Implementation Order
-
-1. **Phase 1a**: Create Python testing scripts (PyTorch only)
-   - You verify PyTorch model works correctly
-2. **Phase 1b**: Implement core ML modules (feature extractor, memory bank, anomaly detector)
-3. **Phase 1c**: Create Flask API server
-4. **Phase 3**: Build Node.js web application
-5. **Phase 2**: TensorRT conversion (after PyTorch verification)
-
-## Notes
-
-- Starting with PyTorch for initial development and testing
-- TensorRT conversion will be done after verifying PyTorch pipeline works
-- PatchCore memory bank approach uses coreset subsampling to reduce memory footprint
-- FAISS will use GPU for fast similarity search
-- Session management ensures multiple users can use the app simultaneously
+| File | Description |
+|---|---|
+| `<stem>_source.png` | Original image after preprocessing, saved as clean reference |
+| `<stem>_overlay.png` | Heatmap (JET colormap) blended over source at `alpha=0.5` |
+| `<stem>_heatmap.png` | Raw JET colormap heatmap (pure, for potential future blending) |
+| `<stem>_annotated.png` | Source with anomaly score text annotation |
+| `torch_res_<stem>.png` | Matplotlib side-by-side plot (original + overlay) |

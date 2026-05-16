@@ -1,62 +1,88 @@
 # Execution Checkpoints (TODO)
 
-## Stage 1: Phase 1.1 and Phase 1.2 (Easy Start)
+## Stage 1: Preprocessing Pipeline
 
-**Local test scripts** → `python/tests/`  (see `python/tests/README.md`)
+**Local test scripts** → `python/src/`
 
-### Testing (Done)
-- [x] `test_thresholding.py` — intensity thresholding with interactive OpenCV trackbar preview + batch mode.
-- [x] `test_bg_subtraction.py` — averaged bg subtraction, interactive + batch mode.
-- [x] `test_preprocess_pipeline.py` — end-to-end: preprocessing → ONNX → FAISS → heatmap with per-image latency.
+### ✅ Done
+- [x] `test_thresholding.py` — intensity thresholding with interactive OpenCV trackbar preview + batch mode
+- [x] `test_bg_subtraction.py` — averaged bg subtraction, interactive + batch mode
+- [x] `test_preprocess_pipeline.py` — end-to-end: preprocessing → ONNX → FAISS → heatmap with per-image latency
+- [x] UI panel for Threshold Controls (min/max intensity, morphological open/close)
+- [x] UI panel for Background Subtraction Controls (diff threshold, morph kernels, fill holes, min component)
+- [x] Upload reference blank images for averaged background subtraction
+- [x] Live preview of threshold / bg-subtraction masked result
+- [x] Image preprocessing applied before feature extraction in `api_server.py`
 
-### Integration into App (Next)
-- [X] Add UI panel for Threshold Controls (min/max intensity, channel selection, morph open/close).
-- [X] Add UI panel for Background Subtraction Controls (diff threshold, morph open/close, fill holes, min component).
-- [X] Add support to upload a reference "blank" folder/images for averaged BG subtraction.
-- [X] Implement live preview of threshold/bg-subtraction masked result.
-- [X] Implement image preprocessing to generate binary BG mask before feature extraction in api_server.py/feature_extractor.py.
+---
 
-## Stage 2: Phase 2 — Spatial Regions
+## Stage 2: Spatial Region Configuration
 
-**Reference** - python/spatial_anomaly_scripts
+**Reference** → `python/spatial_anomaly_scripts/`
 
-- [x] Add UI toggles for Region Selection Modes (Mode A: 2x2 Grid, Mode B: Draw Regions, Mode C: No Splitting).
-- [x] Implement Mode A: 2x2 Grid logic on background subtracted image.
-- [x] Implement Mode B: Canvas overlay for drawing up to 5 bounding polygons/rectangles + labeling.
-- [x] Implement Mode C: Single patch processing.
-- [x] Build preview section showing how sample images will be tiled.
-- [x] Implement DINOv3 exporter: Export ONNX to TensorRT with "Export" UI button.
-- [x] **New**: Multi-page (Step-by-Step) UI architecture with stage locking.
-- [x] **New**: Persistent Right Inspector Panel for "on-the-go" parameter tracking throughout the session.
+### ✅ Done
+- [x] UI toggles for Region Selection Modes (Quadrant Grid / Manual Draw / No Split)
+- [x] Mode A: 2×2 Auto Quadrant Split
+- [x] Mode B: Interactive canvas drawing for up to N manual bounding boxes + labels
+- [x] Mode C: Single-region (no splitting)
+- [x] Preview section showing how sample images will be tiled
+- [x] DINOv3 engine exporter: ONNX → TensorRT export with UI button
+- [x] Multi-page stepper UI with stage locking
+- [x] Persistent Right Inspector Panel (live parameter summary throughout session)
+- [x] Stage navigation gating: blocks progress if engine not selected before export
 
-## Stage 3: Phase 3 — Memory Bank Creation
+---
 
-**Reference** - python/spatial_anomaly_scripts
+## Stage 3: Memory Bank Creation
 
-- [ ] Integrate Phase 1 pre-processing and Phase 2 spatial split into feature extraction flow.
-- [ ] Retain existing "Upload Good Samples" flow but enhance it to pass images through new pipeline.
-- [ ] Update Feature Extraction to load TRT DINOv3 model (BS=n) and extract spatial region features.
-- [ ] Refactor FAISS index generation to handle memory bank size = `BS × num_images × feature_dim`.
-- [ ] Implement naming and saving of the Memory Bank with comprehensive session config (pre-proc, spatial params, index).
+**Reference** → `python/spatial_anomaly_scripts/`
 
-## Stage 4: Phase 4 — Validate Results
-- [ ] Build UI to upload a small test set (≤20 images) for validation with memory bank/model selection.
-- [ ] Implement pipeline combining pre-processing + spatial tiling from saved session during inference.
-- [ ] Perform FAISS similarity search per region, compute anomaly scores, and display inference latency.
-- [ ] Add interactive UI controls: Threshold (τ), k (nearest neighbors), Sigma (σ), and v_max.
-- [ ] Implement dynamic visualization logic to update overlays and heatmaps live via cached raw scores.
+### ✅ Done
+- [x] Upload good samples (ZIP or multi-file)
+- [x] Feature extraction through TensorRT engine with spatial region support
+- [x] `SpatialMemoryBank` integration for region-aware FAISS indexing
+- [x] Save / load named memory banks to `memory_banks/`
+- [x] **Skip Build & Use Existing** option — bypass extraction if bank already exists
 
-## Stage 5: Phase 5 — Confirmation & Final Inference
-- [ ] Create Parameter Summary Screen displaying all consolidated config params before final execution.
-- [ ] Support large batch upload for full inference.
-- [ ] Setup result flag logic: Good images (score < τ) vs Not OK images. Add optional `gt_mask` upload.
-- [ ] Build detailed Results Display (paginated, region-level score breakdown, pixel-level IoU if `gt_mask` present).
-- [ ] Implement "Download all results" feature (ZIP of images + CSV metadata).
-- [ ] Implement "Save session history" exporting full state to JSON for reproducibility.
+### 🔜 Pending
+- [ ] Show per-region feature count in the inspector during extraction
+- [ ] Validate memory bank integrity before allowing proceed to detection
 
-## Stage 6: Phase 1.3 — UNet + SAM Segmentation
-- [ ] Integrate Meta SAM to generate clean binary mask using point/box prompts over BG images.
-- [ ] Provide UI for configuring UNet training parameters (epochs, LR, BS, loss).
-- [ ] Implement background UNet training with progress tracking (MLflow) and dataset tracking (DVC).
-- [ ] Overlay predicted masks on validation images in the dashboard.
-- [ ] Process UNet export pipeline: UNet → ONNX → TensorRT, saving it to session config for future inference.
+---
+
+## Stage 4: Detection & Analysis
+
+### ✅ Done
+- [x] Single image upload for inference
+- [x] Multi-file / ZIP batch upload
+- [x] Preprocessing applied to test images before inference (matches training pipeline)
+- [x] FAISS similarity search per region, anomaly score computation
+- [x] Session-based output management (`outputs/sessions/<session_id>/`)
+- [x] Backend saves: `_source.png`, `_overlay.png`, `_heatmap.png`, `_annotated.png` per image
+- [x] **Detailed Analysis** side-by-side view:
+    - Left: `_source.png` (clean input reference)
+    - Right: `_overlay.png` (heatmap baked over original by backend)
+- [x] Centered anomaly score summary card below inspection panels
+- [x] Anomaly status badge (NORMAL / ANOMALY) reactive to threshold slider
+- [x] Heatmap alpha slider controlling overlay opacity (CSS-based, no canvas)
+- [x] Download results as ZIP
+
+### 🔜 Pending
+- [ ] Region-level score breakdown in the detailed analysis view
+- [ ] Paginated results when batch size > 1 (currently always shows first result)
+- [ ] CSV metadata export alongside ZIP download
+- [ ] "Save session history" as JSON for reproducibility
+
+---
+
+## Stage 5: UNet + SAM Segmentation (Future)
+- [ ] Integrate Meta SAM for clean binary mask generation from point/box prompts
+- [ ] UNet training UI (epochs, LR, BS, loss) with MLflow progress tracking
+- [ ] UNet export pipeline: UNet → ONNX → TensorRT
+
+---
+
+## Known Limitations / Tech Debt
+- [ ] Canvas-based rendering was removed; region bounding boxes are not yet drawn on the right panel (they were drawn in the old canvas logic)
+- [ ] Engine must be manually selected — no auto-detection of the most recent export
+- [ ] Memory bank list not auto-refreshed after a new bank is saved (requires page reload or re-click)

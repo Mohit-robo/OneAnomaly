@@ -101,12 +101,17 @@ class DINOv3TensorRTWrapper:
             # Assumed to be RGB from the inference script
             pass
         
-        # For TensorRT with fixed input size, resize to exact dimensions
+        # For TensorRT with fixed input size, resize to exact compiled engine dimensions
         ps = self.patch_size
-        target_size = (self.smaller_edge_size // ps) * ps
-        
+        if hasattr(self, 'input_shape') and self.input_shape and len(self.input_shape) >= 4:
+            target_h = self.input_shape[-2]
+            target_w = self.input_shape[-1]
+        else:
+            target_h = (self.smaller_edge_size // ps) * ps
+            target_w = target_h
+            
         # Resize to exact target dimensions
-        img = cv2.resize(img, (target_size, target_size), interpolation=cv2.INTER_CUBIC)
+        img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
         
         # Normalization (ImageNet defaults)
         img = img.astype(np.float32) / 255.0
@@ -120,7 +125,7 @@ class DINOv3TensorRTWrapper:
         # Add batch dimension
         image_array = np.expand_dims(img, axis=0).astype(np.float32)
         
-        grid_size = (target_size // ps, target_size // ps)
+        grid_size = (target_h // ps, target_w // ps)
         return image_array, grid_size
     
     def extract_features(self, image_array):

@@ -48,8 +48,7 @@ class FeatureExtractor:
         
         # Image preprocessing
         self.transform = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
+            transforms.Resize(224),
             transforms.ToTensor(),
             transforms.Normalize(
                 mean=[0.485, 0.456, 0.406],
@@ -112,8 +111,48 @@ class FeatureExtractor:
     
     def _load_tensorrt_model(self):
         """Load TensorRT model."""
-        # TODO: Implement TensorRT loading
-        raise NotImplementedError("TensorRT backend not yet implemented")
+        print(f"Loading {self.model_name} with TensorRT backend...")
+        import sys
+        
+        trt_src_path = Path(__file__).parent / 'spatial_anomaly_scripts' / 'jetson_deploy' / 'src'
+        if str(trt_src_path) not in sys.path:
+            sys.path.insert(0, str(trt_src_path))
+            
+        from backbones_trt import DINOv3TensorRTWrapper
+        
+        engine_path = self.model_path
+        if not engine_path:
+            # Try default in models/
+            engine_path = str(Path(__file__).parent.parent / 'models' / f'{self.model_name}.engine')
+            
+        if not os.path.exists(engine_path):
+            # Fallback to models/engine_files/
+            fallback_path = Path(__file__).parent.parent / 'models' / 'engine_files' / Path(engine_path).name
+            if fallback_path.exists():
+                engine_path = str(fallback_path)
+            else:
+                raise FileNotFoundError(f"TensorRT engine not found at {engine_path} or fallback {fallback_path}")
+            
+        self.model = DINOv3TensorRTWrapper(
+            engine_path=engine_path,
+            model_name=self.model_name,
+            smaller_edge_size=256
+        )
+        self.patch_size = self.model.patch_size
+        
+        # Dynamically determine embed_dim and batch_size from model shape
+        if hasattr(self.model, 'output_shape'):
+            self.embed_dim = self.model.output_shape[-1]
+        
+        if hasattr(self.model, 'input_shape'):
+            self.engine_batch_size = self.model.input_shape[0]
+            print(f"Detected engine batch size: {self.engine_batch_size}")
+        else:
+            self.embed_dim = 384 if 'vits16' in self.model_name else 768
+            
+        self.engine_batch_size = self.model.input_shape[0] if hasattr(self.model, 'input_shape') else 1
+        
+        print(f"TensorRT model loaded: patch_size={self.patch_size}, embed_dim={self.embed_dim}")
     
     def extract_from_image(
         self,
@@ -173,12 +212,107 @@ class FeatureExtractor:
         patches_per_side = int(np.sqrt(num_patches))
         patch_grid = (patches_per_side, patches_per_side)
         
+    def extract_batch(
+        self,
+        images: List[np.ndarray]
+    ) -> Tuple[np.ndarray, Tuple[int, int]]:
+        """
+        Extract features from a batch of images efficiently.
+        
+        Args:
+            images: List of input images as numpy arrays (H, W, C) in RGB format
+            
+        Returns:
+            features: Feature array of shape (batch * num_patches, embed_dim)
+            patch_grid: Tuple of (height, width) for patch grid of a single image
+        """
+        if not images:
+            raise ValueError("Empty image sequence")
+            
+        if self.backend == 'pytorch':
+            return self._extract_pytorch_batch(images)
+        elif self.backend == 'tensorrt':
+            return self._extract_tensorrt_batch(images)
+
+    def _extract_tensorrt_batch(
+        self,
+        images: List[np.ndarray]
+    ) -> Tuple[np.ndarray, Tuple[int, int]]:
+        """Extract features using TensorRT model for a batch."""
+        tensors = []
+        grid_size = None
+        for image in images:
+            # model.prepare_image handles resizing and normalization correctly
+            img_tensor, grid = self.model.prepare_image(image)
+            tensors.append(img_tensor)
+            grid_size = grid
+
+        # The TensorRT engine supports up to engine_batch_size (e.g. 1 or 2)
+        batch_size_limit = getattr(self, 'engine_batch_size', 1)
+        
+        all_features = []
+        for i in range(0, len(tensors), batch_size_limit):
+            chunk = tensors[i : i + batch_size_limit]
+            batch_tensor = np.concatenate(chunk, axis=0) # shape (B, 3, H, W)
+            
+            if hasattr(self.model, 'extract_features_batch') and batch_size_limit > 1:
+                try:
+                    feat_list = self.model.extract_features_batch(batch_tensor)
+                    all_features.extend(feat_list)
+                except Exception as e:
+                    print(f"Warning: Batch extraction failed {e}. Falling back to single.")
+                    for j in range(batch_tensor.shape[0]):
+                        feat = self.model.extract_features(np.expand_dims(batch_tensor[j], axis=0))
+                        all_features.append(feat)
+            else:
+                for j in range(batch_tensor.shape[0]):
+                    feat = self.model.extract_features(np.expand_dims(batch_tensor[j], axis=0))
+                    all_features.append(feat)
+                    
+        return np.vstack(all_features), grid_size
+
+    def _extract_pytorch_batch(
+        self,
+        images: List[np.ndarray]
+    ) -> Tuple[np.ndarray, Tuple[int, int]]:
+        """Extract features using PyTorch model for a batch."""
+        tensors = []
+        for image in images:
+            img = cv2.resize(image, (256, 256), interpolation=cv2.INTER_LINEAR)
+            img = img.astype(np.float32) / 255.0
+            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            img = (img - mean) / std
+            
+            # (H, W, C) -> (C, H, W)
+            tensors.append(torch.from_numpy(img.transpose(2, 0, 1)))
+            
+        # (N, C, H, W)
+        batch_tensor = torch.stack(tensors).to(self.device).float()
+        
+        with torch.no_grad():
+            output = self.model.forward_features(batch_tensor)
+            patch_features = output['x_norm_patchtokens']
+            # shape: (N, num_patches, embed_dim)
+            features = patch_features.cpu().numpy()
+            
+        # Flatten across batch: (N * num_patches, embed_dim)
+        features = features.reshape(-1, features.shape[-1])
+        
+        norm = np.linalg.norm(features, axis=1, keepdims=True)
+        features = features / (norm + 1e-6)
+        
+        num_patches = features.shape[0] // len(images)
+        patches_per_side = int(np.sqrt(num_patches))
+        patch_grid = (patches_per_side, patches_per_side)
+        
         return features, patch_grid
-    
+
     def _extract_tensorrt(self, image: np.ndarray):
         """Extract features using TensorRT model."""
-        # TODO: Implement TensorRT inference
-        raise NotImplementedError("TensorRT backend not yet implemented")
+        img_tensor, grid_size = self.model.prepare_image(image)
+        features = self.model.extract_features(img_tensor)
+        return features, grid_size
     
     def extract_from_file(
         self,

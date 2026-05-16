@@ -3,6 +3,30 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.stage').forEach((el, index) => {
         if (index + 1 > 1) el.classList.add('locked');
     });
+
+    // Global State
+    let currentStage = 1;
+    let loadedBankName = null;
+    let analysisSessionId = null;
+    let activeAnalysisItem = null;
+    let maxUnlockedStage = 1;
+    let manualRegions = []; 
+    let isDrawing = false;
+    let startX, startY;
+    let backgroundImage = null;
+    let rawPreviewUrl = null;
+
+    const API_BASE = window.location.hostname ? `http://${window.location.hostname}:5000` : 'http://localhost:5000';
+    console.log("Using API_BASE:", API_BASE);
+
+    // Jet Colormap for Canvas
+    function getJetColor(value) {
+        const r = Math.min(255, Math.max(0, 255 * (1.5 - Math.abs(value * 4 - 3))));
+        const g = Math.min(255, Math.max(0, 255 * (1.5 - Math.abs(value * 4 - 2))));
+        const b = Math.min(255, Math.max(0, 255 * (1.5 - Math.abs(value * 4 - 1))));
+        return { r, g, b };
+    }
+
     // UI Elements
     const modeRadios = document.querySelectorAll('input[name="preprocess_mode"]');
     const panelThresholding = document.getElementById('panel-thresholding');
@@ -19,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const avgPreviewUpload = document.getElementById('avg-preview-upload');
     const avgLiveContainer = document.getElementById('avg-live-preview-container');
     const avgPreviewImg = document.getElementById('avg-preview-img');
+    const overlay = document.getElementById('blocking-overlay');
 
     // Toggle panels based on mode selection
     modeRadios.forEach(radio => {
@@ -33,16 +58,147 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    let currentStage = 1;
-    let maxUnlockedStage = 1;
-    let manualRegions = []; // Stores objects {x, y, w, h} in normalized 0-1 coords
-    let isDrawing = false;
-    let startX, startY;
-    let backgroundImage = null; // Image object for canvas background
-    let rawPreviewUrl = null; // URL of the raw image uploaded in Stage 1
+    // Detector UI slider updates
+    const updateSliderVal = (sliderId, valId, fixed=2) => {
+        const el = document.getElementById(sliderId);
+        const valEl = document.getElementById(valId);
+        if(el && valEl) {
+            el.addEventListener('input', (e) => {
+                valEl.innerText = parseFloat(e.target.value).toFixed(fixed);
+                // Trigger dynamic update if we have an active analysis
+                if (activeAnalysisItem) {
+                    updateDynamicVisualization();
+                }
+            });
+        }
+    };
+    updateSliderVal('anomaly-threshold', 'anomaly-threshold-val');
+    updateSliderVal('heatmap-alpha', 'heatmap-alpha-val');
+
+    // Dynamic Visualization Logic
+    function updateDynamicVisualization() {
+        if (!activeAnalysisItem) return;
+
+        const threshold = parseFloat(document.getElementById('anomaly-threshold').value);
+        const alpha = parseFloat(document.getElementById('heatmap-alpha').value);
+
+        // Update Status Badge
+        const statusBadge = document.getElementById('anomaly-status-badge');
+        if (!statusBadge) return;
+        const isAnomaly = activeAnalysisItem.anomaly_score > threshold;
+
+        if (isAnomaly) {
+            statusBadge.className = 'status-badge status-anomaly';
+            statusBadge.querySelector('.badge-icon').innerText = '⚠️';
+            statusBadge.querySelector('.badge-text').innerText = 'ANOMALY';
+        } else {
+            statusBadge.className = 'status-badge status-normal';
+            statusBadge.querySelector('.badge-icon').innerText = '✓';
+            statusBadge.querySelector('.badge-text').innerText = 'NORMAL';
+        }
+
+        // Update overlay image opacity via CSS (no canvas, no race conditions)
+        const overlayImg = document.getElementById('result-overlay-img');
+        if (overlayImg) {
+            overlayImg.style.opacity = alpha;
+        }
+    }
+
+    /**
+     * Activates the detailed side-by-side inspection for a specific result image.
+     * Simply sets the src of two img tags — _source.png on left, _overlay.png on right.
+     */
+    function showDetailedAnalysis(res, sessionId) {
+        if (!res || !sessionId) return;
+        analysisSessionId = sessionId;
+        const stem = res.filename.split('.').slice(0, -1).join('.');
+
+        // Store state
+        activeAnalysisItem = { ...res, stem };
+
+        // Show container
+        const container = document.getElementById('detailed-analysis');
+        container.style.display = 'block';
+        document.getElementById('analysis-filename').innerText = res.filename;
+
+        // LEFT panel: clean source image
+        const sourceImg = document.getElementById('detailed-original');
+        sourceImg.src = `${API_BASE}/api/get_image/${sessionId}/${stem}_source.png`;
+
+        // RIGHT panel: pre-baked overlay from backend (_overlay.png)
+        const overlayImg = document.getElementById('result-overlay-img');
+        const alpha = parseFloat(document.getElementById('heatmap-alpha').value);
+        overlayImg.style.opacity = alpha;
+        overlayImg.src = `${API_BASE}/api/get_image/${sessionId}/${stem}_overlay.png`;
+
+        // Summary Card
+        const cardBox = document.getElementById('analysis-card-container');
+        if (cardBox) {
+            const threshold = parseFloat(document.getElementById('anomaly-threshold').value);
+            const isAnomaly = res.anomaly_score > threshold;
+            cardBox.innerHTML = `
+                <div class="result-item active" style="background: var(--bg-active); padding: 20px; border-radius: 12px; border: 2px solid ${isAnomaly ? '#ef4444' : '#10b981'};">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <span style="font-weight: 700; font-size: 15px; opacity: 0.9;">IMAGE: ${res.filename}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="font-size: 11px; opacity: 0.6; text-transform: uppercase;">Max Anomaly Score</span>
+                            <span style="font-weight: 800; font-size: 24px; color: ${isAnomaly ? '#ef4444' : '#10b981'}">${res.anomaly_score.toFixed(4)}</span>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 14px; font-weight: 700; background: rgba(0,0,0,0.5); padding: 6px 14px; border-radius: 8px; color: ${isAnomaly ? '#ef4444' : '#10b981'}">
+                                ${isAnomaly ? '⚠️ ANOMALY' : '✓ NORMAL'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Update badge and scroll
+        updateDynamicVisualization();
+        container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+
 
 
     // Helper to get current config
+    function showToast(title, message, type = 'info', duration = 5000) {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        
+        toast.innerHTML = `
+            <div class="toast-header">
+                <span class="toast-icon">
+                    ${type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ'}
+                </span>
+                ${title}
+            </div>
+            <div class="toast-body">${message}</div>
+            <div class="toast-progress"></div>
+        `;
+        
+        container.appendChild(toast);
+        
+        // Trigger animation
+        setTimeout(() => toast.classList.add('show'), 10);
+        
+        // Progress bar animation
+        const progress = toast.querySelector('.toast-progress');
+        progress.style.transition = `width ${duration}ms linear`;
+        setTimeout(() => progress.style.width = '0%', 10);
+        
+        // Auto remove
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 400);
+        }, duration);
+    }
+
     function getCurrentConfig() {
         const mode = document.querySelector('input[name="preprocess_mode"]:checked').value;
         const morphOpenEl = document.getElementById('morph-open');
@@ -69,6 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateStageUI(stage) {
         if (stage > maxUnlockedStage) return;
         currentStage = stage;
+        console.log(`Switching to Stage ${stage}`);
 
         // Update Sidebar
         document.querySelectorAll('.stage').forEach((el, index) => {
@@ -84,13 +241,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Toggle Pages
         document.querySelectorAll('.step-page').forEach(page => page.classList.remove('active'));
-        const pageIds = ['page-preprocessing', 'page-spatial', 'page-recap', 'page-detect'];
+        const pageIds = ['page-preprocessing', 'page-spatial', 'page-memory', 'page-detect'];
         const activePage = document.getElementById(pageIds[stage - 1]);
         if (activePage) {
             activePage.classList.add('active');
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
-        updateInspector();
+        // Refresh engines when entering spatial stage
+        if (stage === 2) {
+            if (typeof loadExistingEngines === 'function') loadExistingEngines();
+        }
+        // Refresh banks when entering detection stage
+        if (stage === 4) {
+            if (typeof loadExistingBanks === 'function') loadExistingBanks();
+        }
     }
 
     // Sidebar navigation
@@ -186,7 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
         saveConfigBtn.innerText = 'Saving...';
         
         try {
-            const response = await fetch('http://localhost:5000/api/configure_preprocess', {
+            const response = await fetch(`${API_BASE}/api/configure_preprocess`, {
                 method: 'POST',
                 body: formData
             });
@@ -240,7 +404,7 @@ document.addEventListener('DOMContentLoaded', () => {
         threshPreviewImg.style.opacity = '0.5';
 
         try {
-            const response = await fetch('http://localhost:5000/api/preview_mask', {
+                const response = await fetch(`${API_BASE}/api/preview_mask`, {
                 method: 'POST',
                 body: formData,
                 signal: threshAbortController.signal
@@ -520,19 +684,95 @@ document.addEventListener('DOMContentLoaded', () => {
         drawRegions();
     });
 
-    // Model Export & Status Overlay
-    const overlay = document.getElementById('blocking-overlay');
-    const overlayTitle = document.getElementById('overlay-title');
-    const overlayMsg = document.getElementById('overlay-msg');
-    const overlayProgress = document.getElementById('overlay-progress');
+    // Global progress handler for streaming tasks
+    function runStreamingTask(title, apiPath, bodyData, onComplete) {
+        const overlayTitle = document.getElementById('overlay-title');
+        const overlayMsg = document.getElementById('overlay-msg');
+        const overlayProgress = document.getElementById('overlay-progress');
+        const overlayLog = document.getElementById('overlay-log');
 
-    exportTrtBtn.addEventListener('click', async () => {
-        const spatialMode = document.querySelector('input[name="spatial_mode"]:checked').value;
-        const preprocessMode = document.querySelector('input[name="preprocess_mode"]:checked').value;
-        const bs = (spatialMode === 'grid') ? 4 : (spatialMode === 'manual' ? manualRegions.length : 1);
+        overlay.style.display = 'flex';
+        overlayTitle.innerText = title;
+        overlayMsg.innerText = 'Initializing...';
+        overlayProgress.style.width = '0%';
+        overlayLog.style.display = 'block';
+        overlayLog.innerText = '';
+        document.getElementById('overlay-spinner').style.display = 'block';
+        document.getElementById('overlay-close-btn').style.display = 'none';
+
+        const updateUI = (data) => {
+            if (data.title) overlayTitle.innerText = data.title;
+            if (data.message) {
+                overlayLog.innerText += data.message + '\n';
+                overlayLog.scrollTop = overlayLog.scrollHeight;
+            }
+            if (data.progress !== undefined) {
+                overlayProgress.style.width = data.progress + '%';
+            }
+
+            if (data.success) {
+                document.getElementById('overlay-spinner').style.display = 'none';
+                document.getElementById('overlay-close-btn').style.display = 'inline-block';
+                if (onComplete) onComplete(data);
+                
+                setTimeout(() => {
+                    overlay.style.display = 'none';
+                }, 3000); // 3 seconds instead of 1.5
+            }
+
+            if (data.error) {
+                overlayLog.innerText += `ERROR: ${data.error}\n`;
+                document.getElementById('overlay-spinner').style.display = 'none';
+                document.getElementById('overlay-close-btn').style.display = 'inline-block';
+                showToast('Task Failed', data.error, 'error');
+            }
+        };
+
+        (async () => {
+            try {
+                const response = await fetch(`${API_BASE}${apiPath}`, {
+                    method: 'POST',
+                    headers: bodyData instanceof FormData ? {} : { 'Content-Type': 'application/json' },
+                    body: bodyData instanceof FormData ? bodyData : JSON.stringify(bodyData)
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || 'Server error');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    const text = decoder.decode(value);
+                    const lines = text.split('\n');
+                    lines.forEach(line => {
+                        if (!line.trim()) return;
+                        try {
+                            const data = JSON.parse(line);
+                            updateUI(data);
+                        } catch (e) {
+                            console.error('Parse error individual line', line);
+                        }
+                    });
+                }
+            } catch (error) {
+                updateUI({ error: error.message });
+            }
+        })();
+    }
+
+    document.getElementById('export-trt-btn').addEventListener('click', async () => {
+        const bs = parseInt(document.getElementById('batch-size-trt').value);
+        const spatialRadios = document.querySelector('input[name="spatial_mode"]:checked');
+        const spatialMode = spatialRadios ? spatialRadios.value : 'whole';
         
+        const preProcMode = document.querySelector('input[name="preprocess_mode"]:checked').value;
         let preProcInfo = "";
-        if (preprocessMode === 'thresholding') {
+        if (preProcMode === 'thresholding') {
             const min = document.getElementById('thresh-min').value;
             const max = document.getElementById('thresh-max').value;
             preProcInfo = `int${min}-${max}`;
@@ -541,98 +781,18 @@ document.addEventListener('DOMContentLoaded', () => {
             preProcInfo = `avgD${diff}`;
         }
 
-        if (spatialMode === 'manual' && bs === 0) {
-            alert('Please draw at least one region or select another mode.');
+        if (spatialMode === 'manual' && manualRegions.length === 0) {
+            showToast('Region Missing', 'Please draw at least one region or select another mode.', 'error');
             return;
         }
 
-        const overlay = document.getElementById('blocking-overlay');
-        const overlayTitle = document.getElementById('overlay-title');
-        const overlayMsg = document.getElementById('overlay-msg');
-        const overlayProgress = document.getElementById('overlay-progress');
-        const overlayLog = document.getElementById('overlay-log');
-        
-        overlay.style.display = 'flex';
-        overlayProgress.style.width = '0%';
-        overlayLog.style.display = 'block';
-        overlayLog.innerText = '';
-        document.getElementById('overlay-spinner').style.display = 'block';
-        document.getElementById('overlay-close-btn').style.display = 'none';
-        
-        const updateStatus = (title, msg, progress) => {
-            overlayTitle.innerText = title;
-            overlayMsg.innerText = 'See logs below...';
-            overlayProgress.style.width = progress + '%';
-            
-            // Append to log
-            overlayLog.innerText += msg + '\n';
-            overlayLog.scrollTop = overlayLog.scrollHeight;
-
-            if (title.includes('Failed') || title.includes('Error')) {
-                document.getElementById('overlay-spinner').style.display = 'none';
-                document.getElementById('overlay-close-btn').style.display = 'inline-block';
-            }
-
-            // SUCCESS AUTO-CLOSE
-            if (title.includes('Success')) {
-                document.getElementById('overlay-spinner').style.display = 'none';
-                
-                // Update Phase 2 status area
-                const spatialStatus = document.getElementById('spatial-status');
-                if (spatialStatus) {
-                    spatialStatus.innerText = '✓ ' + msg;
-                    spatialStatus.style.color = 'var(--status-ready)';
-                }
-
-                setTimeout(() => {
-                    overlay.style.display = 'none';
-                    if (typeof loadExistingEngines === 'function') loadExistingEngines();
-                }, 1500);
-            }
-        };
-
-        try {
-            updateStatus('Export Initiated', 'Connecting to backend...', 5);
-            
-            const response = await fetch('http://localhost:5000/api/export_trt', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    batch_size: bs,
-                    spatial_mode: spatialMode,
-                    pre_proc: preProcInfo
-                })
-            });
-
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || 'Server error during export');
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                const text = decoder.decode(value);
-                const lines = text.split('\n');
-                lines.forEach(line => {
-                    if (!line.trim()) return;
-                    try {
-                        const data = JSON.parse(line);
-                        updateStatus(data.title, data.message, data.progress);
-                        if (data.title === 'Export Failed') throw new Error(data.message);
-                    } catch (e) {
-                        if (line.includes('Failed')) throw new Error(line);
-                    }
-                });
-            }
-
-
-        } catch (error) {
-            updateStatus('Export Failed', error.message, 0);
-        }
+        runStreamingTask('Model Export', '/api/export_trt', {
+            batch_size: bs,
+            spatial_mode: spatialMode,
+            pre_proc: preProcInfo
+        }, () => {
+            if (typeof loadExistingEngines === 'function') loadExistingEngines();
+        });
     });
 
     document.getElementById('overlay-close-btn').addEventListener('click', () => {
@@ -645,27 +805,69 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     async function loadExistingEngines() {
+        console.log("Loading engines from...", `${API_BASE}/api/list_engines`);
         try {
-            const response = await fetch('http://localhost:5000/api/list_engines');
+            const response = await fetch(`${API_BASE}/api/list_engines`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const data = await response.json();
+            console.log("Received engines:", data.engines);
+            
+            if (!engineSelect) {
+                console.error("engineSelect element not found!");
+                return;
+            }
+            
             engineSelect.innerHTML = '<option value="">-- No engine selected --</option>';
-            data.engines.forEach(eng => {
-                const opt = document.createElement('option');
-                opt.value = eng;
-                opt.innerText = eng;
-                engineSelect.appendChild(opt);
-            });
-        } catch (e) {}
+            if (data.engines && data.engines.length > 0) {
+                data.engines.forEach(eng => {
+                    const opt = document.createElement('option');
+                    opt.value = eng;
+                    opt.innerText = eng;
+                    engineSelect.appendChild(opt);
+                });
+            } else {
+                console.warn("No engines found on server.");
+            }
+        } catch (e) {
+            console.error("Failed to load engines:", e);
+        }
+    }
+
+    async function loadExistingBanks() {
+        try {
+            const response = await fetch(`${API_BASE}/api/list_memory_banks`);
+            const data = await response.json();
+            const select = document.getElementById('existing-bank-select');
+            if (!select) return;
+            
+            select.innerHTML = '<option value="">-- No bank selected (use current) --</option>';
+            if (data.memory_banks) {
+                data.memory_banks.forEach(bank => {
+                    const opt = document.createElement('option');
+                    opt.value = bank;
+                    opt.innerText = bank;
+                    select.appendChild(opt);
+                });
+            }
+        } catch (e) {
+            console.error("Failed to load memory banks:", e);
+        }
     }
 
     loadExistingEngines();
+    loadExistingBanks();
 
     saveSpatialBtn.addEventListener('click', async () => {
         const mode = document.querySelector('input[name="spatial_mode"]:checked').value;
-        const engine = engineSelect.value;
+        const engineSelectEl = document.getElementById('existing-engine-select');
+        const engine = engineSelectEl ? engineSelectEl.value : "";
         
-        if (!engine) {
-            alert('Please select or generate a TensorRT engine first.');
+        if (!engine || engine === "") {
+            showToast('Engine Missing', 'Please select or generate a TensorRT engine before continuing.', 'error');
+            if (engineSelectEl) {
+                engineSelectEl.style.borderColor = '#ef4444';
+                setTimeout(() => engineSelectEl.style.borderColor = '', 2000);
+            }
             return;
         }
 
@@ -679,7 +881,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        const response = await fetch('http://localhost:5000/api/configure_spatial', {
+        const response = await fetch(`${API_BASE}/api/configure_spatial`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
@@ -692,8 +894,168 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // -------------------------------------------------------------------------
+    // STAGE 3: MEMORY BANK CREATION
+    // -------------------------------------------------------------------------
+    document.getElementById('extract-features-btn').addEventListener('click', async () => {
+        const files = document.getElementById('memory-upload').files;
+        const numShots = document.getElementById('num-shots').value;
+        const statusSpan = document.getElementById('memory-status');
+
+        if (files.length === 0) {
+            showStatus(statusSpan, 'Please select images or a ZIP file first.', true);
+            return;
+        }
+
+        const formData = new FormData();
+        Array.from(files).forEach(file => {
+            if (file.name.endsWith('.zip')) {
+                formData.append('zip_file', file);
+            } else {
+                formData.append('files', file);
+            }
+        });
+        
+        if (numShots && numShots > 0) {
+            formData.append('num_shots', numShots);
+        }
+
+        runStreamingTask('Feature Extraction', '/api/extract_features', formData, (data) => {
+            const totalItems = data.num_features_after_coreset || data.num_features;
+            showStatus(statusSpan, `Success: ${data.num_images} images processed across ${data.num_regions} regions. Total ${totalItems} items in memory.`);
+            showToast('Memory Bank Built Successfully', `Processed ${data.num_images} images across ${data.num_regions} regions.\nTotal features: ${totalItems}`, 'success');
+            
+            // Enable save button
+            document.getElementById('save-memory-btn').disabled = false;
+        });
+    });
+
+    document.getElementById('save-memory-btn').addEventListener('click', async () => {
+        const bankName = document.getElementById('memory-bank-name').value;
+        const statusSpan = document.getElementById('memory-status');
+
+        if (!bankName) {
+            showStatus(statusSpan, 'Please provide a name for the Memory Bank.', true);
+            return;
+        }
+
+        const btn = document.getElementById('save-memory-btn');
+        btn.innerText = 'Saving...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch(`${API_BASE}/api/save_memory_bank`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: bankName })
+            });
+
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+
+            showStatus(statusSpan, `Memory Bank saved successfully as ${bankName}`);
+            showToast('Memory Bank Saved', `Bank: ${bankName}`, 'success');
+            
+            // Unlock Stage 4
+            if (maxUnlockedStage < 4) maxUnlockedStage = 4;
+            updateStageUI(4);
+        } catch (error) {
+            showStatus(statusSpan, error.message, true);
+        } finally {
+            btn.innerText = 'Save & Continue to Detection';
+            btn.disabled = false;
+        }
+    });
+
+    document.getElementById('skip-memory-btn').addEventListener('click', () => {
+        if (maxUnlockedStage < 4) maxUnlockedStage = 4;
+        updateStageUI(4);
+    });
+
+    // -------------------------------------------------------------------------
+    // STAGE 4: ANOMALY DETECTION
+    // -------------------------------------------------------------------------
+    document.getElementById('detect-btn').addEventListener('click', async () => {
+        const files = document.getElementById('detect-upload').files;
+        const bankName = document.getElementById('existing-bank-select').value;
+        const statusSpan = document.getElementById('detect-status');
+        const resultsGrid = document.getElementById('results-grid');
+        const resultsArea = document.getElementById('detect-results');
+
+        if (files.length === 0) {
+            showStatus(statusSpan, 'Please select test images first.', true);
+            return;
+        }
+
+        const btn = document.getElementById('detect-btn');
+        btn.innerText = 'Detecting...';
+        btn.disabled = true;
+        statusSpan.innerText = '';
+
+        try {
+            // Only load the bank if selected and NOT already the active one
+            if (bankName && bankName !== loadedBankName) {
+                statusSpan.innerText = 'Loading Memory Bank...';
+                const loadResp = await fetch(`${API_BASE}/api/load_memory_bank`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: bankName })
+                });
+                const loadData = await loadResp.json();
+                if (loadData.error) throw new Error("Load Bank Failed: " + loadData.error);
+                loadedBankName = bankName;
+            }
+
+            const sessionId = 'detect_' + new Date().getTime();
+            const formData = new FormData();
+            formData.append('session_id', sessionId);
+            
+            Array.from(files).forEach(file => {
+                if (file.name.endsWith('.zip')) {
+                    formData.append('zip_file', file);
+                } else {
+                    formData.append('files', file);
+                }
+            });
+
+            // Get dynamic analysis values
+            const anomalyThreshold = document.getElementById('anomaly-threshold').value;
+            const heatmapAlpha = document.getElementById('heatmap-alpha').value;
+            formData.append('threshold', anomalyThreshold);
+            formData.append('alpha', heatmapAlpha);
+
+            const response = await fetch(`${API_BASE}/api/detect_anomalies`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+
+            showStatus(statusSpan, `Inference complete! Processed ${data.num_images} images. Overall max score: ${data.max_score.toFixed(4)}`);
+            
+            // Expert View Optimization: Redundant result tiles are suppressed. 
+            // The system proceeds directly to the high-fidelity Detailed Analysis for the first result.
+            resultsGrid.innerHTML = '';
+            resultsArea.style.display = 'none';
+            
+            if (data.results && data.results.length > 0) {
+                // Auto-activate the first (primary) result in the detailed pane
+                showDetailedAnalysis(data.results[0], data.session_id);
+            }
+
+        } catch (error) {
+            showStatus(statusSpan, error.message, true);
+        } finally {
+            btn.innerText = 'Run Detection';
+            btn.disabled = false;
+        }
+    });
+
     // Trigger UI show for Stage 1 on init
     updateStageUI(1);
+    loadExistingEngines();
+    loadExistingBanks();
     
     // Initialize correct spatial panel visibility
     const activeSpatialMode = document.querySelector('input[name="spatial_mode"]:checked').value;

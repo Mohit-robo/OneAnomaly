@@ -41,7 +41,9 @@ class AnomalyDetector:
     def detect_anomalies(
         self,
         image: np.ndarray,
-        return_heatmap: bool = True
+        return_heatmap: bool = True,
+        alpha: float = 0.5,
+        regions: Optional[list] = None
     ) -> Tuple[float, Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Detect anomalies in an image.
@@ -55,68 +57,94 @@ class AnomalyDetector:
             anomaly_map: Anomaly heatmap (256, 256) if return_heatmap=True
             overlay: Heatmap overlaid on original image if return_heatmap=True
         """
-        # Force resize to 256x256 to match reference script logic
-        # This ensures sigma=2.0 smoothing has the same effect
-        if image.shape[:2] != (256, 256):
-            image = cv2.resize(image, (256, 256), interpolation=cv2.INTER_LINEAR)
-            
         # Extract features from test image
 
-        # Extract features from test image
-        features, patch_grid = self.feature_extractor.extract_from_image(image)
-        
-        # Query memory bank for nearest neighbors
-        distances, _ = self.memory_bank.query(features, k=self.k_neighbors)
-        
-        # Anomaly score is the distance to nearest neighbor
-        # For k > 1, we can use mean or max distance
-        # Calculate Cosine Distance (1 - Similarity)
-        # distances from IndexFlatIP are cosine similarities (dot product of normalized vectors)
-        if self.k_neighbors == 1:
-            similarities = distances[:, 0]
-        else:
-            similarities = distances.mean(axis=1)
+        # Determine if we use spatial regions
+        if regions is None:
+            regions = getattr(self.memory_bank, 'regions_coords', None)
+        num_regions = len(regions) if regions else getattr(self.memory_bank, 'num_regions', 1)
+
+        if regions and num_regions > 1:
+            # SPATIAL MODE
+            # 1. Crop image into regions
+            crops = []
+            for reg in regions:
+                x, y, w, h = reg
+                crop = image[y:y+h, x:x+w]
+                # Ensure crop has content (cv2 resize might be needed if extremely small, but usually 224x224)
+                crops.append(crop)
             
-        # Convert similarity to distance (1 - sim)
-        # Sim is in [-1, 1], so distance in [0, 2]
-        patch_scores = 1.0 - similarities
+            # 2. Extract features in batch (returns a 2D 588x768 array if 3 regions x 196 patches)
+            features_flat, patch_grid = self.feature_extractor.extract_batch(crops)
+            
+            # Reshape it to correctly match Regional banks: (num_regions, num_patches_per_region, feature_dim)
+            features_per_region = features_flat.reshape(num_regions, -1, features_flat.shape[-1])
+            
+            # 3. Query spatial bank
+            distances, _ = self.memory_bank.query(features_per_region, k=self.k_neighbors)
+            # distances shape: (num_regions, num_patches_per_region, k)
+            
+            # 4. Calculate scores
+            if self.k_neighbors == 1:
+                similarities = distances[:, :, 0]
+            else:
+                similarities = distances.mean(axis=2)
+            
+            patch_scores = 1.0 - similarities # (num_regions, num_patches_per_region)
+            
+            # 5. Build global anomaly map by stitching regions
+            # We assume patch_grid is same for all regions
+            h_grid, w_grid = patch_grid
+            full_score_map = np.zeros(image.shape[:2], dtype=np.float32)
+            
+            for i, reg in enumerate(regions):
+                x, y, w, h = reg
+                if w <= 0 or h <= 0: continue
+                
+                reg_scores = patch_scores[i].reshape(h_grid, w_grid)
+                
+                # Safety check for empty patches
+                if reg_scores.size == 0: continue
+                
+                # Resize regional scores to regional pixel size
+                try:
+                    reg_map = cv2.resize(reg_scores, (w, h), interpolation=cv2.INTER_CUBIC)
+                    # Bounds check for stitching
+                    y_end = min(y + h, image.shape[0])
+                    x_end = min(x + w, image.shape[1])
+                    full_score_map[y:y_end, x:x_end] = reg_map[:(y_end-y), :(x_end-x)]
+                except Exception as e:
+                    print(f"Warning: Failed to resize/stitch region {i}: {e}")
+                
+            score_map = full_score_map
+            anomaly_score = float(patch_scores.max())
+            
+        else:
+            # NON-SPATIAL MODE (Standard)
+            features, patch_grid = self.feature_extractor.extract_from_image(image)
+            distances, _ = self.memory_bank.query(features, k=self.k_neighbors)
+            
+            if self.k_neighbors == 1:
+                similarities = distances[:, 0]
+            else:
+                similarities = distances.mean(axis=1)
+                
+            patch_scores = 1.0 - similarities
+            anomaly_score = float(patch_scores.max())
+            
+            h, w = patch_grid
+            score_map = patch_scores.reshape(h, w)
+            score_map = cv2.resize(score_map, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_CUBIC)
         
-        # Overall image anomaly score (max patch score)
-        anomaly_score = float(patch_scores.max())
-        
-        # DEBUG: Print score stats
-        # print(f"DEBUG: Patch Scores (1-Sim) - Min: {patch_scores.min():.4f}, Max: {patch_scores.max():.4f}, Mean: {patch_scores.mean():.4f}")
-        
-        if not return_heatmap:
-            return anomaly_score, None, None
-        
-        # Generate anomaly heatmap
-        # Reference logic: Upscale (CUBIC) -> Smooth -> Normalize
-        
-        target_size = image.shape[:2]
-        
-        # 1. Reshape scores to grid
-        h, w = patch_grid
-        score_map = patch_scores.reshape(h, w)
-        
-        # 2. Upscale to target size using Cubic interpolation
-        score_map = cv2.resize(
-            score_map,
-            (target_size[1], target_size[0]),
-            interpolation=cv2.INTER_CUBIC
-        )
-        
-        # 3. Apply gaussian smoothing
+        # Common Post-processing
         if self.gaussian_sigma > 0:
             score_map = gaussian_filter(score_map, sigma=self.gaussian_sigma)
         
-        # 4. Normalize to [0, 1]
-        score_map = (score_map - score_map.min()) / (
-            score_map.max() - score_map.min() + 1e-8
-        )
+        # Normalize
+        score_map = (score_map - score_map.min()) / (score_map.max() - score_map.min() + 1e-8)
         
         # Create overlay
-        overlay = self._create_overlay(image, score_map)
+        overlay = self._create_overlay(image, score_map, alpha=alpha)
         
         return anomaly_score, score_map, overlay
     
@@ -149,12 +177,12 @@ class AnomalyDetector:
         heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
         
         # Blend with original image
-        # Reference uses 0.7 original, 0.3 heatmap
+        # Reference uses 1-alpha original, alpha heatmap
         overlay = cv2.addWeighted(
             image,
-            0.7,
+            1.0 - alpha,
             heatmap_colored,
-            0.3,
+            alpha,
             0
         )
         
@@ -164,7 +192,9 @@ class AnomalyDetector:
         self,
         image_path: str,
         save_output: bool = False,
-        output_dir: Optional[str] = None
+        output_dir: Optional[str] = None,
+        alpha: float = 0.5,
+        regions: Optional[list] = None
     ) -> Tuple[float, Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Detect anomalies in an image file.
@@ -187,7 +217,7 @@ class AnomalyDetector:
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         # Detect anomalies
-        score, heatmap, overlay = self.detect_anomalies(image, return_heatmap=True)
+        score, heatmap, overlay = self.detect_anomalies(image, return_heatmap=True, alpha=alpha, regions=regions)
         
         # Save outputs if requested
         if save_output and output_dir:
@@ -196,6 +226,10 @@ class AnomalyDetector:
             
             image_name = Path(image_path).stem
             
+            # Save source image (for side-by-side view)
+            source_path = output_path / f"{image_name}_source.png"
+            cv2.imwrite(str(source_path), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+
             # Save heatmap
             heatmap_path = output_path / f"{image_name}_heatmap.png"
             cv2.imwrite(
@@ -244,7 +278,8 @@ class AnomalyDetector:
         self,
         folder_path: str,
         output_dir: str,
-        extensions: Optional[list] = None
+        extensions: Optional[list] = None,
+        alpha: float = 0.5
     ) -> dict:
         """
         Detect anomalies in all images in a folder.
@@ -282,7 +317,8 @@ class AnomalyDetector:
                 score, heatmap, overlay = self.detect_from_file(
                     str(img_path),
                     save_output=True,
-                    output_dir=output_dir
+                    output_dir=output_dir,
+                    alpha=alpha
                 )
                 
                 results[img_path.name] = {

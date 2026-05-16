@@ -1,110 +1,138 @@
-# DINOv3 Anomaly Detection Web Platform
+# OneAnomaly — DINOv3 Anomaly Detection Platform
 
-A premium, industrial-grade **Web Application** for detecting surfacing defects using Meta's DINOv3 Vision Transformer. This tool replaces complex command-line workflows with a modern, dark-themed GUI that provides real-time feedback, interactive visualizations, and simplified asset management.
-
-## 🌟 Web App Features
-
-### 🖥️ Modern User Interface
--   **Roboflow-Inspired Workflow**: A premium, linear stage-by-stage workflow guiding the user from preprocessing to deployment.
--   **Sleek Dark Mode**: Designed for low-eye-strain usage in industrial environments with glassmorphic elements and modern typography.
--   **Live Interactive Previews**: Instantly visualize thresholding and background subtraction results within inline grid canvases.
--   **Contextual Assistance**: Beautiful, non-clipping hover tooltips attached to all complex parameters.
-
-### ⚙️ Stage 1: Pipeline Preprocessing
--   **Averaged Background Subtraction**: Upload empty reference backgrounds to subtract static noise from industrial camera feeds.
--   **Binary Thresholding**: High-fidelity parameter extraction with min/max bounds and granular morphological denoising (Open/Close kernels).
--   **Session Memory**: Configurations are safely retained across server states during active workflow sessions.
-
-### 🧠 Intelligent Memory Management
--   **One-Click Training**: Simply upload "Good" images (ZIP or folders) and click "Extract". The app handles the complexities of DINOv3 feature extraction and FAISS indexing.
--   **Memory Bank Manager**: Save, load, and switch between different defect datasets (e.g., "Bottle Caps", "Fabric", "Metal Sheets") instantly.
--   **Efficiency**: Uses 100% of extracted features (no subsampling) for maximum accuracy, optimized with L2 normalization.
-
-### 🔍 Advanced Detection & Visualization
--   **Visual Heatmaps**: Instantly see *where* the defect is with high-resolution red/blue heatmaps overlays.
--   **Side-by-Side View**: Compare original images vs. anomaly overlays.
--   **Scoring System**: Automatic "Anomaly Score" calculation based on Cosine Similarity.
--   **Batch Processing**: Upload a ZIP of 100+ test images and get a downloadable report of all defects.
+A production-ready **web application** for detecting surface defects in industrial parts using Meta's **DINOv3 Vision Transformer**, **FAISS** similarity search, and **TensorRT** hardware-accelerated inference — all wrapped in a premium dark-mode interface.
 
 ---
 
-## 🚀 Quick Start Guide
+## ✨ Features
+
+- **4-Stage Guided Workflow** — Preprocessing → Spatial → Memory Bank → Detection, with stage locking
+- **Spatial Region Analysis** — Detect anomalies in specific zones (manual draw or auto quadrant)
+- **TensorRT Acceleration** — Export DINOv3 ONNX → TRT engine in-browser with real-time progress
+- **Memory Bank Management** — Save, load, and switch between named FAISS feature banks
+- **Side-by-Side Inspection** — Source image vs. JET heatmap overlay with adjustable opacity
+- **Live Parameter Inspector** — Right-side panel tracking all session config in real time
+- **Session Storage** — All result artifacts (`_source.png`, `_overlay.png`, etc.) persisted per run
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
--   **NVIDIA GPU** (Required for DINOv3 acceleration)
--   **Python 3.8+**
--   **Node.js 14+**
+- NVIDIA GPU with CUDA (required for TensorRT + FAISS-GPU)
+- Python 3.8+
+- TensorRT 8.x installed system-wide
 
-### 1. Installation
+### 1. Clone & Install Python Dependencies
 ```bash
-# Clone the repository
 git clone https://github.com/Mohit-robo/anomaly_app.git
-cd anomaly_app
-
-# Install Python Dependencies (Backend)
-cd python
+cd anomaly_app/python
 pip install -r requirements.txt
-
-# Install Node.js Dependencies (Frontend)
-cd ..
-npm install
 ```
 
-### 2. Model Setup
-Download the `dinov3_vits16` weights:
-1.  Create a `models/` folder in the root.
-2.  Download `dinov3_vits16_pretrain_lvd1689m.pth`.
-3.  Place it in `models/`.
+### 2. Place Model Weights
+```
+anomaly_app/models/
+└── dinov3_vits16_pretrain_lvd1689m.pth
+```
+See `docs/SETUP_DINOV3.md` for download instructions.
 
-### 3. Launching the App
-You need two terminals running:
-
-**Terminal 1 (Python Brain):**
+### 3. Start the Flask Server
 ```bash
 cd python
 python api_server.py
 ```
+Open **http://localhost:5000** in your browser.
 
-**Terminal 2 (Web Server):**
-```bash
-# Main project folder
-node server.js
-```
-
-Open **[http://localhost:3000](http://localhost:3000)** in your browser.
+> **Note**: The Flask server serves both the frontend and the ML API. No Node.js server needed.
 
 ---
 
-## 📖 Web Workflow
+## 📖 Workflow
 
-The platform uses a **sequential stepper architecture**. Complete each stage to unlock the next.
+### Stage 1 — Preprocessing
+Select **Intensity Thresholding** or **Averaged Background Subtraction**. Adjust sliders and watch the live preview grid update. Click **Save & Continue**.
 
-### Stage 1: Pre-processing Configuration
-1.  **Select Mode**: Choose between *Intensity Thresholding* or *Averaged Background Subtraction*.
-2.  **Tune Sliders**: Adjust parameters like thresholds and morphological kernels. Watch the **Live Preview** update instantly.
-3.  **Confirm**: Click "Save Configuration & Continue" to lock in basic pipeline settings and unlock Spatial Region selection.
+### Stage 2 — Spatial Regions
+Define inspection zones:
+- **Manual Draw** — Click and drag to draw bounding boxes on a preview image
+- **Quadrant Grid** — Automatic 2×2 split
+- **No Split** — Full-image mode
 
-### Stage 2: Spatial Region Partitioning
-1.  **Define Areas**: Choose *Automatic Quadrant Split* for grid analysis or *Manual Selection* to draw specific ROIs.
-2.  **Export**: Click **Export** to compile the DINOv3 pipeline into an optimized TensorRT engine for your specific batch size.
+Select a TensorRT engine matching your region count (batch size). Click **Export** to compile if needed.
 
-### Stage 3: Memory Bank Creation
-1.  **Upload**: Drag & drop a ZIP file containing *only good samples*.
-2.  **Extract**: Click "Extract Features". The system processes the good images through your custom Pre-processing and Spatial filters.
-3.  **Save**: Name and save your Memory Bank (e.g., `fabric_v1`).
+### Stage 3 — Memory Bank
+Upload good (defect-free) sample images as ZIP or multi-file. Click **Extract Features** to build the FAISS index, or **Skip & Use Existing** to load a previously saved bank.
 
-### Stage 4: Inference & Detection
-1.  **Load**: Select your saved Memory Bank.
-2.  **Test**: Upload suspect images or a batch folder.
-3.  **Analyze**: 
-    -   Review **Anomaly Scores** for both the whole image and specific regions.
-    -   Inspect **Heatmap Overlays** in the result gallery.
-    -   Download a full ZIP report including CSV metadata.
+### Stage 4 — Detection & Analysis
+Upload a test image. The system preprocesses it → extracts features → searches the FAISS bank → generates heatmaps. Results appear in the **Detailed Analysis** view:
 
+| Left Panel | Right Panel |
+|---|---|
+| Input Reference (`_source.png`) | Anomaly Detection Result (`_overlay.png`) |
+
+Use the **Heatmap Alpha** slider to control overlay intensity. The **Anomaly Score** card and status badge update live as you adjust the threshold.
+
+---
+
+## 🗂️ Project Structure
+
+```
+anomaly_app/
+├── public/                   # Frontend (HTML/CSS/JS)
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+├── python/                   # ML backend
+│   ├── api_server.py         # Flask API (all endpoints)
+│   ├── feature_extractor.py  # DINOv3 TRT/PyTorch extraction
+│   ├── memory_bank.py        # MemoryBank + SpatialMemoryBank (FAISS)
+│   ├── anomaly_detector.py   # Heatmap generation & file saving
+│   ├── dinov3/               # DINOv3 repo (submodule)
+│   ├── src/                  # Preprocessing test scripts
+│   └── requirements.txt
+├── models/
+│   ├── dinov3_vits16_pretrain_lvd1689m.pth
+│   └── engine_files/         # Compiled TRT engines
+├── memory_banks/             # Saved FAISS banks (.pkl)
+├── outputs/sessions/         # Per-run detection results
+├── uploads/                  # Temporary upload storage
+└── docs/                     # Project documentation
+```
 
 ---
 
 ## 🛠️ Tech Stack
--   **Frontend**: HTML5, CSS3 (Custom Dark Theme), Vanilla JS.
--   **Backend Proxy**: Node.js / Express / Multer.
--   **ML Engine**: Python / Flask / PyTorch / DINOv3 / FAISS.
+
+| Component | Technology |
+|---|---|
+| Frontend | HTML5, CSS3, Vanilla JS |
+| API Server | Python / Flask / Flask-CORS |
+| Feature Extraction | DINOv3 ViT-S/16 (TensorRT / PyTorch fallback) |
+| Similarity Search | FAISS-GPU (IndexFlatIP — cosine similarity) |
+| Image Processing | OpenCV, scipy (gaussian filter) |
+| Heatmap | JET colormap via `cv2.applyColorMap` |
+
+---
+
+## 📁 Result Artifacts (per detection run)
+
+| File | Content |
+|---|---|
+| `<stem>_source.png` | Preprocessed input image (clean reference) |
+| `<stem>_overlay.png` | Heatmap blended over source (α=0.5) |
+| `<stem>_heatmap.png` | Pure JET colormap heatmap |
+| `<stem>_annotated.png` | Source with score text annotation |
+| `torch_res_<stem>.png` | Matplotlib side-by-side comparison plot |
+
+---
+
+## 📚 Documentation
+
+| File | Description |
+|---|---|
+| `docs/project.md` | Architecture, API reference, design decisions |
+| `docs/todo.md` | Feature checklist by stage |
+| `docs/lessons.md` | Bugs encountered, root causes, and fixes |
+| `docs/SETUP_DINOV3.md` | Model weight download and TRT engine setup |
+| `CHANGELOG.md` | Version history |

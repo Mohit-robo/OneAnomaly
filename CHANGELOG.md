@@ -1,41 +1,75 @@
 # Changelog
 
-All notable changes to the **Anomaly Detection App** project.
+All notable changes to the **OneAnomaly** / **Anomaly Detection App** project.
+
+---
+
+## [v1.4.0] - 2026-05-16
+
+### 🔧 Critical Fix: Anomaly Heatmap Display (Black Canvas → img tag)
+- **Root Cause**: The right-side "Anomaly Detection Result" panel used an HTML `<canvas>` for rendering. Multiple race conditions caused it to render as solid black:
+  - `sourceImg.complete` check failed silently because `src` was set and `complete` reset atomically
+  - `naturalWidth === 0` early-return path triggered due to image not fully materialized before draw
+  - Potential canvas CORS taint when frontend and API differ in port (cross-origin without `crossOrigin="anonymous"` on `<img>`)
+- **Fix**: Removed canvas entirely. Replaced with a plain `<img id="result-overlay-img">` that loads `_overlay.png` directly from the backend session directory. Heatmap alpha slider now controls CSS `opacity` on the element — no canvas, no race conditions, guaranteed render.
+- **Dead Code Removal**: Removed the unused `imgPath` variable and the entire `data.results.forEach` tile-building loop from the detect handler. Detection now immediately triggers `showDetailedAnalysis` for the first result.
+- **`renderBlendedCanvas` removed**: Entire function deleted. `showDetailedAnalysis` is now synchronous with a single direct `img.src` assignment.
+
+### 🔧 Backend: Correct Heatmap Artifact Export
+- `anomaly_detector.py`: `_heatmap.png` now saved as a **JET colormap image** (via `cv2.applyColorMap`) instead of a raw grayscale float array. Makes it usable for visual inspection and future frontend blending.
+
+---
+
+## [v1.3.0] - 2026-05-15
+
+### 🚀 Expert-Level Detection Workspace
+- **Removed Results Grid**: Eliminated the redundant "Detection Results" tile grid that was duplicating info already shown in the Detailed Analysis view.
+- **Auto-Activate First Result**: After detection, `showDetailedAnalysis` is called immediately for the primary result — no user click required.
+- **Centered Summary Card**: Anomaly summary card (score + NORMAL/ANOMALY verdict) is centered below the side-by-side inspection panels.
+- **Reactive Threshold Badge**: Status badge (NORMAL/ANOMALY) and card border color update live as the threshold slider moves.
+- **Memory Bank Skip**: Added "Skip Build & Use Existing" button in Stage 3 for users who have already built a bank and want to proceed directly to detection.
+
+### 🐛 Bug Fixes
+- **Export Modal Close**: Fixed the export completion popup not dismissing after closing — close button event listener was not re-attached after SSE stream completion.
+- **Engine Validation**: Stage 3 now blocks proceeding to detection if no engine has been selected in Stage 2. Shows a warning toast.
+
+---
+
+## [v1.2.0] - 2026-05-15
+
+### 🚀 Stage 2: Spatial Region Architecture
+- **Multi-Page Stepper UI**: Sequential stage-locked workflow (Preprocessing → Spatial → Memory Bank → Detect).
+- **Stage Locking**: Future stages locked until current stage config is saved.
+- **Persistent Inspector Panel**: Right-hand live auditor showing all current session parameters.
+- **Spatial Modes**: Implemented Quadrant Grid (2×2), Manual Region Drawing (canvas overlay), and No Split.
+- **Export Button Redesign**: Blue primary, Black hover state with increased hit area.
+- **Dropdown Dark Mode**: Engine select menu forced to `background: black` for theme consistency.
+
+---
 
 ## [v1.1.0] - 2026-05-14
 
-### 🚀 Major UI/UX Overhaul (Stage 1.2: Preprocessing)
--   **Roboflow-Inspired Aesthetics**: Migrated UI to a highly-polished, premium dark mode featuring custom typography (Inter/Geist), glassmorphic elements, and border glow interactions.
--   **Stage 1: Preprocessing Mode**: Focused the interface explicitly on image preprocessing (Background Subtraction and Binary Thresholding).
--   **Live Interactive Previews**: Added real-time layout grid visualization driven by instantaneous API endpoints, removing the clunky `morphological` components from background subtraction routines for cleaner results.
--   **Workflow-Oriented Layout**: Widened the main central canvas by dropping the static right-sided metadata inspector, placing emphasis on an immersive workspace.
--   **Contextual Tooltips**: Overhauled frontend elements to feature custom non-clipping hover tooltips for concise parameter guidance.
+### 🚀 Stage 1: Preprocessing UI Overhaul
+- **Premium Dark Mode UI**: Roboflow-inspired design with Inter/Geist typography, glassmorphic elements, border-glow interactions.
+- **Live Interactive Previews**: Real-time preprocessing preview grid via API.
+- **Preprocessing Modes**: Binary Thresholding and Averaged Background Subtraction with full parameter controls.
+- **Session State**: Preprocessing config stored in Flask global state, persisted across requests within a session.
+- **Directory Refactor**: `python/tests/` → `python/src/` for cleaner module organization.
 
-### 🐛 Backend Refinements
--   **Session Memory State**: Shifted intermediate pipeline configuration storage to Server RAM instead of immediate JSON disk saving, building state dynamically across tools.
--   **Directory Restructuring**: Refactored `python/tests` directory to `python/src` for standardized module organization.
+---
 
 ## [v1.0.0] - 2026-01-05
 
-### 🚀 Major Features
--   **Full Web Interface**: Replaced CLI-only workflow with a modern, responsive Web UI.
--   **Live System Feedback**: Integrated a real-time terminal log viewer and progress bar into the frontend, bridging the gap between the Python backend and the user.
--   **Optimized Anomaly Detection**:
-    -   Aligned preprocessing with the reference script (256x256 resize, L2 Normalization).
-    -   Switched to **Cosine Similarity** (FAISS IndexFlatIP) for more accurate defect scoring.
-    -   Implemented Reference-Standard heatmap generation (Cubic Upscaling -> Gaussian Smoothing -> Min-Max Norm).
-
-### 🐛 Bug Fixes & Improvements
--   **Button Stability**: Fixed issue where the "Run Detection" button would vanish by enforcing `type="button"` to prevent accidental form submissions.
--   **Error Reporting**: exposed detailed Python stack traces in the Web UI, replacing generic error messages.
--   **Recursive Processing**: Added support for nested ZIP files and folder structures during image upload.
--   **Robustness**: Added checks for corrupt images and thread-safety fixes for Matplotlib (switched to `Agg` backend).
--   **Dependency Handling**: Improved DINOv3 model loading to check for local weights first, simplifying setup.
-
-### 📜 Original Ask vs. Delivered
-*   **Original Ask**: A script to run anomaly detection using DINOv3.
-*   **Delivered**: A complete **End-to-End Application**.
-    -   Instead of just updated scripts, we built a **Client-Server Architecture**.
-    -   Added a robust **Memory Bank Management** system.
-    -   Added visualization tools (Heatmap overlays, side-by-side plots) directly in the browser.
-    -   Ensured **Pixel-Perfect Alignment** with the user's "Gold Standard" reference script (`dinov3_faiss.py`).
+### 🚀 Initial Release
+- **Full Web Interface**: Replaced CLI workflow with responsive Web UI.
+- **Live Terminal**: Real-time Python stdout streaming to browser via log polling.
+- **Anomaly Detection Core**:
+  - DINOv3 ViT-S/16 feature extraction (PyTorch + TensorRT)
+  - FAISS IndexFlatIP for Cosine Similarity search
+  - PatchCore-style memory bank with coreset subsampling
+  - JET colormap heatmap with Gaussian smoothing
+- **Bug Fixes**:
+  - Button stability (`type="button"` to prevent form submission)
+  - Matplotlib thread safety (`Agg` backend)
+  - Recursive ZIP / nested folder support for uploads
+  - DINOv3 local weights fallback before downloading

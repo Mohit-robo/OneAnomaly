@@ -203,3 +203,10 @@ This is the production path. Full sub-pipeline:
 - **SAM integration** (Phase 1.3) can be run as a separate Flask endpoint — heavy model, load on demand.
 - **Session JSON** (Phase 5.4) should be designed early as a unified config schema — it will be referenced across all phases.
 - Consider migrating from Vanilla JS to a lightweight reactive framework (Alpine.js or HTMX) to handle the multi-phase UI state without a full React rewrite.
+
+
+
+## Future Scope
+
+- **Phase 2** - Add model export image size selection.
+- **Phase 3** - Create seperate memory bank for each spatial region. Select the size of memory bank for each region.

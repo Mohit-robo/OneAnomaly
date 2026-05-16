@@ -344,8 +344,14 @@
                                 <option value="">-- No engine selected --</option>
                             </select>
                         </div>
+                    </div>
+                    <div class="input-row" style="margin-top: 15px;">
+                        <div class="input-group">
+                            <label for="batch-size-trt">Model Batch Size (for Export)</label>
+                            <input type="number" id="batch-size-trt" class="input-field" value="1" min="1" max="128">
+                        </div>
                         <div class="input-group" style="display: flex; align-items: flex-end; gap: 10px;">
-                            <button class="btn btn-secondary" id="export-trt-btn">Export</button>
+                            <button class="btn btn-secondary" id="export-trt-btn">Export TRT Engine</button>
                         </div>
                     </div>
                 </div>
@@ -356,14 +362,46 @@
             </div>
           </div> <!-- End #page-spatial -->
 
-          <div id="page-recap" class="step-page">
+          <div id="page-memory" class="step-page">
               <div class="workspace-header">
-                  <h1>Parameter Recap</h1>
-                  <p>Review your session parameters and prepare for feature extraction.</p>
+                  <h1>Memory Bank Creation</h1>
+                  <p>Extract features from good samples using your configured Pre-processing & Spatial Partitioning.</p>
               </div>
               <div class="module-card">
+                  <div class="card-header">
+                      <h3>Training Data</h3>
+                  </div>
                   <div class="card-content">
-                      <p>All pre-processing and spatial logic has been saved. Please review the inspector panel on the right before proceeding.</p>
+                      <div class="input-row">
+                          <div class="input-group full-width">
+                              <label for="memory-upload">Upload 'Good' Images (ZIP, Folder, or Single File)</label>
+                              <input type="file" id="memory-upload" class="file-input" multiple webkitdirectory directory accept=".jpg,.jpeg,.png,.bmp,.zip">
+                              <span style="font-size: 12px; color: var(--text-tertiary); display: block; margin-top: 4px;">For folders, select any file inside or use webkitdirectory if supported by browser. Alternately upload a ZIP.</span>
+                          </div>
+                      </div>
+                      <div class="input-row">
+                          <div class="input-group">
+                              <label class="tooltip-container" for="num-shots">Number of Samples (Shots)
+                                  <span class="info-icon" data-tooltip="Leave blank or 0 to use all uploaded images. A specific number will randomly sample that many images.">i</span>
+                              </label>
+                              <input type="number" id="num-shots" class="input-field" placeholder="e.g., 5 or leave empty" min="0">
+                          </div>
+                      </div>
+                      <div class="divider"></div>
+                      <div class="input-row">
+                          <div class="input-group">
+                              <label for="memory-bank-name">Memory Bank Name</label>
+                              <input type="text" id="memory-bank-name" class="input-field" placeholder="e.g., fabric_v1">
+                          </div>
+                          <div class="input-group" style="display: flex; align-items: flex-end; gap: 10px;">
+                              <button class="btn btn-primary" id="extract-features-btn">Extract Features</button>
+                          </div>
+                      </div>
+                  </div>
+                  <div class="card-footer">
+                      <button class="btn btn-primary" id="save-memory-btn" disabled>Save & Continue to Detection</button>
+                      <button class="btn btn-secondary" id="skip-memory-btn" style="margin-left: 10px;">Skip Build & Use Existing</button>
+                      <span id="memory-status" class="status-msg"></span>
                   </div>
               </div>
           </div>
@@ -372,6 +410,91 @@
               <div class="workspace-header">
                   <h1>Inference & Detection</h1>
                   <p>Run the full pipeline on live or uploaded data.</p>
+              </div>
+
+              <!-- Detection Selection Card -->
+              <div class="card">
+                  <div class="card-header">
+                      <h2>Test Image Inference</h2>
+                  </div>
+                  <div class="card-body">
+                      <div class="input-row">
+                          <div class="input-group">
+                              <label for="detect-upload">Select Test Images</label>
+                              <input type="file" id="detect-upload" class="input-field" multiple accept="image/*,.zip">
+                          </div>
+                          <div class="input-group">
+                              <label for="existing-bank-select">Load Saved Memory Bank</label>
+                              <select id="existing-bank-select" class="select-input">
+                                  <option value="">-- No bank selected (use current) --</option>
+                              </select>
+                          </div>
+                      </div>
+                      <div class="input-row" style="margin-top: 15px;">
+                          <div class="input-group">
+                              <label for="anomaly-threshold">Anomaly Score Threshold <span id="anomaly-threshold-val" style="font-weight: bold; margin-left:8px;">0.50</span></label>
+                              <input type="range" id="anomaly-threshold" class="input-field" min="0" max="1" step="0.01" value="0.5">
+                          </div>
+                          <div class="input-group">
+                              <label for="heatmap-alpha">Heatmap Overlap Opacity <span id="heatmap-alpha-val" style="font-weight: bold; margin-left:8px;">0.50</span></label>
+                              <input type="range" id="heatmap-alpha" class="input-field" min="0" max="1" step="0.05" value="0.5">
+                          </div>
+                      </div>
+                  </div>
+                  <div class="card-footer">
+                      <button class="btn btn-primary" id="detect-btn">Run Detection</button>
+                      <span id="detect-status" class="status-msg"></span>
+                  </div>
+              </div>
+              
+              <!-- Detailed Analysis View -->
+              <div id="detailed-analysis" class="card" style="display: none; margin-top: 20px;">
+                  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                      <div style="display: flex; align-items: center; gap: 12px;">
+                        <h2>Detailed Analysis</h2>
+                        <span id="analysis-filename" style="opacity: 0.7; font-size: 0.9em;"></span>
+                      </div>
+                      <div id="anomaly-status-badge" class="status-badge status-normal">
+                          <span class="badge-icon">✓</span> <span class="badge-text">NORMAL</span>
+                      </div>
+                  </div>
+                  <div class="card-body">
+                      <div class="side-by-side-inspection">
+                          <div class="inspection-column">
+                              <h3 style="margin-bottom: 10px; font-size: 0.9em; text-transform: uppercase; letter-spacing: 1px; color: var(--accent-text);">Input Reference</h3>
+                              <div id="original-container" class="image-viewer">
+                                  <img id="detailed-original" src="" alt="Original Image" style="display: block; width: 100%; border-radius: 4px;">
+                              </div>
+                          </div>
+                          <div class="inspection-column">
+                              <h3 style="margin-bottom: 10px; font-size: 0.9em; text-transform: uppercase; letter-spacing: 1px; color: var(--accent-text);">Anomaly Detection Result</h3>
+                              <div id="result-container" class="image-viewer">
+                                  <img id="result-overlay-img" src="" alt="Anomaly Overlay" style="display: block; width: 100%; border-radius: 4px;">
+                              </div>
+                          </div>
+                      </div>
+                      <!-- Centered Detection Card -->
+                      <div style="margin-top: 30px; display: flex; justify-content: center;">
+                          <div id="analysis-card-container" style="width: 320px;">
+                              <!-- Card will be injected here by JS -->
+                          </div>
+                      </div>
+                   </div>
+               </div>
+              
+              <!-- Results Area -->
+              <!-- Results Area (Hidden) -->
+              <div id="detect-results" style="display: none !important;">
+                  <div class="card">
+                    <div class="card-header">
+                        <h2>Detection Results</h2>
+                    </div>
+                    <div class="card-body">
+                        <div id="results-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;">
+                            <!-- Result items will be injected here -->
+                        </div>
+                    </div>
+                  </div>
               </div>
           </div>
 
@@ -407,6 +530,7 @@
     </div>
 
     <script src="app.js"></script>
+    <div id="toast-container" class="toast-container"></div>
 </body>
 
 </html>

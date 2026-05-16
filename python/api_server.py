@@ -10,13 +10,13 @@ from pathlib import Path
 from typing import Optional
 import json
 
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, stream_with_context
 from flask_cors import CORS
 import numpy as np
 import cv2
 
 from feature_extractor import FeatureExtractor
-from memory_bank import MemoryBank
+from memory_bank import MemoryBank, SpatialMemoryBank
 from anomaly_detector import AnomalyDetector
 
 # Import from local test scripts
@@ -36,6 +36,7 @@ CORS(app)
 feature_extractor: Optional[FeatureExtractor] = None
 memory_bank: Optional[MemoryBank] = None
 anomaly_detector: Optional[AnomalyDetector] = None
+last_initialized_engine: Optional[str] = None
 
 # Global Preprocessing State
 preprocess_config = {"mode": "thresholding"}
@@ -44,7 +45,7 @@ averaged_bg_reference: Optional[np.ndarray] = None
 # Global Spatial State
 spatial_config = {
     "spatial_mode": "manual",
-    "engine": None,
+    "engine": "dinov3_manual_int30-255_bs3.engine",
     "regions": [],
     "grid_ratios": {"x": 50, "y": 50}
 }
@@ -83,23 +84,38 @@ def save_bg_ref(ref):
 averaged_bg_reference = load_bg_ref()
 
 
-def initialize_models():
-    """Initialize ML models on first request."""
-    global feature_extractor, memory_bank, anomaly_detector
+def initialize_models(force_reinit=False):
+    """Initialize ML models on first request or if engine changed."""
+    global feature_extractor, memory_bank, anomaly_detector, last_initialized_engine
     
-    if feature_extractor is None:
-        print("Initializing feature extractor...")
+    current_engine = spatial_config.get('engine')
+    
+    if feature_extractor is None or current_engine != last_initialized_engine or force_reinit:
+        print(f"Initializing feature extractor (Engine: {current_engine})...")
+        
+        # Determine engine path
+        model_path = None
+        if current_engine:
+            model_path = str(ENGINE_DIR / current_engine)
+            print(f"Using selected engine: {model_path}")
+            
         feature_extractor = FeatureExtractor(
             model_name='dinov3_vits16',
             device='cuda',
-            backend='pytorch'
+            backend='tensorrt',
+            model_path=model_path
         )
         
-        print("Initializing memory bank...")
-        memory_bank = MemoryBank(
-            feature_dim=feature_extractor.get_feature_dimension(),
-            use_gpu=True
-        )
+        last_initialized_engine = current_engine
+        
+        if memory_bank is None:
+            print("Initializing Spatial Memory Bank...")
+            # Start with default 1 region, it will be recreated/adjusted during extraction based on phase 2 context
+            memory_bank = SpatialMemoryBank(
+                num_regions=1,
+                feature_dim=feature_extractor.get_feature_dimension(),
+                use_gpu=True
+            )
         
         print("Models initialized successfully!")
 
@@ -311,57 +327,123 @@ def preview_mask():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/extract_features', methods=['POST'])
-def extract_features():
-    """
-    Extract features from uploaded good images.
+def get_spatial_regions(img_shape, config):
+    """Get regional bounding boxes based on spatial config."""
+    h_img, w_img = img_shape[:2]
+    mode = config.get('spatial_mode', 'whole')
     
-    Expected form data:
-        - files: Multiple image files OR
-        - zip_file: Single zip file containing images
-    """
-    try:
-        initialize_models()
+    if mode == 'whole':
+        return [[0, 0, w_img, h_img]]
         
-        # Create temporary directory for this request
-        temp_dir = UPLOAD_DIR / 'good'
-        temp_dir.mkdir(exist_ok=True)
+    elif mode == 'manual':
+        regions = config.get('regions', [])
+        if not regions:
+            return [[0, 0, w_img, h_img]]
         
-        # Clear previous temp files
-        for item in temp_dir.iterdir():
-            if item.is_file():
-                item.unlink()
-            elif item.is_dir():
-                shutil.rmtree(item)
+        coords = []
+        for r in regions:
+            x, y, w, h = int(r['x']), int(r['y']), int(r['w']), int(r['h'])
+            # Ensure bounds
+            x_start = max(min(x, w_img - 1), 0)
+            y_start = max(min(y, h_img - 1), 0)
+            x_end = max(min(x + w, w_img), x_start + 1)
+            y_end = max(min(y + h, h_img), y_start + 1)
+            coords.append([x_start, y_start, x_end - x_start, y_end - y_start])
+        return coords if coords else [[0, 0, w_img, h_img]]
         
-        # Handle file uploads
-        if 'zip_file' in request.files:
-            # Handle zip file
-            zip_file = request.files['zip_file']
-            zip_path = temp_dir / 'upload.zip'
-            zip_file.save(zip_path)
+    elif mode == 'grid':
+        ratios = config.get('grid_ratios', {'x': 50, 'y': 50})
+        split_x = int(w_img * ratios['x'] / 100.0)
+        split_y = int(h_img * ratios['y'] / 100.0)
+        
+        return [
+            [0, 0, split_x, split_y],
+            [split_x, 0, w_img - split_x, split_y],
+            [0, split_y, split_x, h_img - split_y],
+            [split_x, split_y, w_img - split_x, h_img - split_y]
+        ]
+        
+    return [[0, 0, w_img, h_img]]
+
+def crop_regions(image_bgr, config):
+    """Crop image into regions based on spatial config."""
+    coords = get_spatial_regions(image_bgr.shape, config)
+    crops = []
+    for x, y, w, h in coords:
+        crops.append(image_bgr[y:y+h, x:x+w])
+    return crops
+
+
+@app.route('/api/extract_features', methods=['POST'])
+def extract_features():
+    def generate():
+        yield json.dumps({'title': 'Extracting...', 'message': 'Initializing extraction...', 'progress': 0}) + '\n'
+        
+        try:
+            initialize_models()
             
-            # Extract zip
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
+            # Create temporary directory for this request
+            temp_dir = UPLOAD_DIR / 'good'
+            temp_dir.mkdir(exist_ok=True)
             
-            zip_path.unlink()
-        
-        elif 'files' in request.files:
-            # Handle multiple files
-            files = request.files.getlist('files')
-            for file in files:
-                if file.filename:
-                    file.save(temp_dir / file.filename)
-        
-        else:
-            return jsonify({'error': 'No files provided'}), 400
-        
-        # Preprocess images before extraction
-        for item in temp_dir.rglob('*'):
-            if item.is_file() and item.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
+            # Clear previous temp files
+            for item in temp_dir.iterdir():
+                if item.is_file():
+                    item.unlink()
+                elif item.is_dir():
+                    shutil.rmtree(item)
+            
+            # Handle file uploads
+            if 'zip_file' in request.files:
+                # Handle zip file
+                zip_file = request.files['zip_file']
+                zip_path = temp_dir / 'upload.zip'
+                zip_file.save(zip_path)
+                
+                # Extract zip
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir)
+                
+                zip_path.unlink()
+            
+            elif 'files' in request.files:
+                # Handle multiple files
+                files = request.files.getlist('files')
+                for file in files:
+                    if file.filename:
+                        save_path = temp_dir / file.filename
+                        save_path.parent.mkdir(parents=True, exist_ok=True)
+                        file.save(save_path)
+            
+            else:
+                yield json.dumps({'error': 'No files provided'}) + '\n'
+                return
+            
+            # Identify valid image files
+            image_files = []
+            for item in temp_dir.rglob('*'):
+                if item.is_file() and item.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
+                    image_files.append(item)
+                    
+            # Subsampling if num_shots forms a limit
+            num_shots_str = request.form.get('num_shots')
+            if num_shots_str and num_shots_str.strip():
+                num_shots = int(num_shots_str)
+                if 0 < num_shots < len(image_files):
+                    import random
+                    image_files = random.sample(image_files, num_shots)
+
+            yield json.dumps({'title': 'Preprocessing', 'message': f'Processing {len(image_files)} images...', 'progress': 10}) + '\n'
+
+            # Ensure spatial memory bank is exactly matching logic
+            all_crops = []
+            import cv2
+            
+            total_images = len(image_files)
+            for idx, item in enumerate(image_files):
                 image_bgr = cv2.imread(str(item))
                 if image_bgr is not None:
+                    # 1. Preprocessing mask
                     if preprocess_config.get('mode') == 'thresholding':
                         _, masked_img, _ = apply_threshold_mask(
                             image_bgr,
@@ -371,7 +453,7 @@ def extract_features():
                             morph_open=preprocess_config.get('morph_open', 3),
                             morph_close=preprocess_config.get('morph_close', 5)
                         )
-                        cv2.imwrite(str(item), masked_img)
+                        image_bgr = masked_img
                     elif preprocess_config.get('mode') == 'average' and averaged_bg_reference is not None:
                         _, masked_img = apply_bg_mask(
                             image_bgr,
@@ -382,29 +464,56 @@ def extract_features():
                             fill_holes=preprocess_config.get('fill_holes', True),
                             min_component_ratio=preprocess_config.get('min_component_ratio', 0.1)
                         )
-                        cv2.imwrite(str(item), masked_img)
+                        image_bgr = masked_img
+                    
+                    # 2. Spatial crop
+                    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+                    crops = crop_regions(image_rgb, spatial_config)
+                    all_crops.extend(crops)
+                
+                if (idx + 1) % 5 == 0 or idx == total_images - 1:
+                    progress = 10 + int(70 * (idx + 1) / total_images)
+                    yield json.dumps({'title': 'Preprocessing', 'message': f'Image {idx+1}/{total_images}', 'progress': progress}) + '\n'
+                    
+            global memory_bank
+            num_regions = len(crops) if all_crops else 1
+            
+            # Reset memory bank to correctly reflect the regions
+            memory_bank = SpatialMemoryBank(
+                num_regions=num_regions,
+                feature_dim=feature_extractor.get_feature_dimension(),
+                use_gpu=True
+            )
+            if all_crops:
+                 memory_bank.regions_coords = get_spatial_regions(cv2.imread(str(UPLOAD_DIR / image_files[0])).shape, spatial_config)
 
-        # Extract features
-        features, image_paths = feature_extractor.extract_from_folder(str(temp_dir))
-        
-        # Add to memory bank
-        memory_bank.add_features(features, apply_coreset=True)
-        
-        return jsonify({
-            'success': True,
-            'num_images': len(image_paths),
-            'num_features': features.shape[0],
-            'num_features_after_coreset': memory_bank.feature_count(),
-            'feature_dim': features.shape[1]
-        })
-    
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+            if all_crops:
+                yield json.dumps({'title': 'Extraction', 'message': 'Extracting and indexing features...', 'progress': 85}) + '\n'
+                features, _ = feature_extractor.extract_batch(all_crops)
+                memory_bank.add_features_batch(features, apply_coreset=True)
+                num_features = features.shape[0]
+            else:
+                num_features = 0
+
+            yield json.dumps({
+                'success': True,
+                'num_images': len(image_files),
+                'num_features': num_features,
+                'num_features_after_coreset': memory_bank.feature_count(),
+                'num_regions': memory_bank.num_regions,
+                'feature_dim': feature_extractor.get_feature_dimension(),
+                'progress': 100
+            }) + '\n'
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            yield json.dumps({'error': str(e)}) + '\n'
+
+    return app.response_class(stream_with_context(generate()), mimetype='application/json')
 
 
-@app.route('/save_memory_bank', methods=['POST'])
+@app.route('/api/save_memory_bank', methods=['POST'])
 def save_memory_bank():
     """
     Save current memory bank to disk.
@@ -428,7 +537,6 @@ def save_memory_bank():
         
         return jsonify({
             'success': True,
-            'filepath': str(filepath),
             'num_features': memory_bank.feature_count()
         })
     
@@ -436,7 +544,7 @@ def save_memory_bank():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/load_memory_bank', methods=['POST'])
+@app.route('/api/load_memory_bank', methods=['POST'])
 def load_memory_bank():
     """
     Load memory bank from disk.
@@ -470,7 +578,7 @@ def load_memory_bank():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/list_memory_banks', methods=['GET'])
+@app.route('/api/list_memory_banks', methods=['GET'])
 def list_memory_banks():
     """List all saved memory banks."""
     try:
@@ -483,7 +591,7 @@ def list_memory_banks():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/detect_anomalies', methods=['POST'])
+@app.route('/api/detect_anomalies', methods=['POST'])
 def detect_anomalies():
     """
     Detect anomalies in uploaded test images.
@@ -558,7 +666,9 @@ def detect_anomalies():
             files = request.files.getlist('files')
             for file in files:
                 if file.filename:
-                    file.save(temp_dir / file.filename)
+                    save_path = temp_dir / file.filename
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    file.save(save_path)
         
         else:
             return jsonify({'error': 'No files provided'}), 400
@@ -590,24 +700,45 @@ def detect_anomalies():
                         )
                         cv2.imwrite(str(item), masked_img)
 
+        anomaly_threshold = float(request.form.get('threshold', 0.5))
+        heatmap_alpha = float(request.form.get('alpha', 0.5))
+
         # Process images
-        results = anomaly_detector.detect_from_folder(
+        results_dict = anomaly_detector.detect_from_folder(
             str(temp_dir),
-            str(session_dir)
+            str(session_dir),
+            alpha=heatmap_alpha
         )
         
+        # Convert results to list for frontend
+        results_list = []
+        max_score = 0
+        for fname, info in results_dict.items():
+            score = info.get('anomaly_score')
+            if score is None: score = 0
+            
+            if score > max_score:
+                max_score = score
+            results_list.append({
+                'filename': fname,
+                'anomaly_score': score,
+                'is_anomaly': score > anomaly_threshold,
+                'processed': info.get('processed', False)
+            })
+
         # Prepare response
         response_data = {
             'success': True,
             'session_id': session_id,
-            'is_single_image': is_single_image,
-            'results': results,
+            'num_images': len(results_list),
+            'max_score': max_score,
+            'results': results_list,
             'output_dir': str(session_dir)
         }
         
         # If single image, include image data
-        if is_single_image:
-            image_name = list(results.keys())[0]
+        if is_single_image and results_list:
+            image_name = results_list[0]['filename']
             overlay_path = session_dir / f"{Path(image_name).stem}_overlay.png"
             
             if overlay_path.exists():
@@ -621,7 +752,7 @@ def detect_anomalies():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/download_results/<session_id>', methods=['GET'])
+@app.route('/api/download_results/<session_id>', methods=['GET'])
 def download_results(session_id):
     """Download results as a zip file."""
     try:
@@ -648,7 +779,7 @@ def download_results(session_id):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/get_image/<session_id>/<filename>', methods=['GET'])
+@app.route('/api/get_image/<session_id>/<filename>', methods=['GET'])
 def get_image(session_id, filename):
     """Get a specific image from session results."""
     try:
@@ -679,6 +810,9 @@ def configure_spatial():
         if not data:
             return jsonify({'error': 'No config provided'}), 400
         
+        if not data.get('engine'):
+            return jsonify({'error': 'Memory Bank creation requires a TensorRT engine. Please select or export one in Stage 2.'}), 400
+            
         spatial_config.update(data)
         
         # Save to persistent JSON
@@ -764,14 +898,19 @@ def export_trt():
                 for update in run_and_stream(cmd_trt, "TRT Compilation", 50, 100, BASE_DIR):
                     yield update
                 
-                yield json.dumps({'title': 'Success!', 'message': f'TRT Engine created: {engine_path.name}', 'progress': 100}) + '\n'
+                yield json.dumps({
+                    'title': 'Success!', 
+                    'message': f'TRT Engine created: {engine_path.name}', 
+                    'progress': 100,
+                    'success': True
+                }) + '\n'
 
             except subprocess.CalledProcessError as e:
                 yield json.dumps({'title': 'Export Failed', 'message': f'Process failed with code {e.returncode}. Check the logs above.', 'progress': 0}) + '\n'
             except Exception as e:
                 yield json.dumps({'title': 'Export Error', 'message': str(e), 'progress': 0}) + '\n'
 
-        return app.response_class(generate(), mimetype='application/json')
+        return app.response_class(stream_with_context(generate()), mimetype='application/json')
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -786,13 +925,13 @@ if __name__ == '__main__':
     print("  GET  /health")
     print("  POST /api/configure_preprocess")
     print("  POST /api/preview_mask")
-    print("  POST /extract_features")
-    print("  POST /save_memory_bank")
-    print("  POST /load_memory_bank")
-    print("  GET  /list_memory_banks")
-    print("  POST /detect_anomalies")
-    print("  GET  /download_results/<session_id>")
-    print("  GET  /get_image/<session_id>/<filename>")
+    print("  POST /api/extract_features")
+    print("  POST /api/save_memory_bank")
+    print("  POST /api/load_memory_bank")
+    print("  GET  /api/list_memory_banks")
+    print("  POST /api/detect_anomalies")
+    print("  GET  /api/download_results/<session_id>")
+    print("  GET  /api/get_image/<session_id>/<filename>")
     print("\n" + "="*60 + "\n")
     
     app.run(host='0.0.0.0', port=5000, debug=True)

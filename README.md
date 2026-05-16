@@ -25,8 +25,6 @@ A production-ready **web application** for detecting surface defects in industri
 
 ### 1. Clone & Install Python Dependencies
 ```bash
-git clone https://github.com/Mohit-robo/anomaly_app.git
-cd anomaly_app/python
 pip install -r requirements.txt
 ```
 

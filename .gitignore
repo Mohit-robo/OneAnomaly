@@ -22,7 +22,5 @@ anomaly_app/
 # Logs
 *.log
 
-*.png
-
 package-lock.json
 package.json

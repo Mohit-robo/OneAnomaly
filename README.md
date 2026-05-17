@@ -57,9 +57,9 @@ Open **http://localhost:8000** in your browser.
 ### Stage 1 — Preprocessing
 Select **Intensity Thresholding** or **Averaged Background Subtraction**. Adjust sliders and watch the live preview grid update. Click **Save & Continue**.
 
-![Pre-proc-1](assets/Prep_proc_1.png) 
+![Pre-proc-1](./assets/Prep_proc_1.png) 
 
-![Pre-proc-2](assets/Prep_proc_2.png) 
+![Pre-proc-2](./assets/Prep_proc_2.png) 
 
 
 ### Stage 2 — Spatial Regions
@@ -68,7 +68,7 @@ Define inspection zones:
 - **Quadrant Grid** — Automatic 2×2 split
 - **No Split** — Full-image mode
 
-![alt text](Spatial_region.png)
+![Spatial_region](./assets/Spatial_region.png)
 
 Select a TensorRT engine matching your region count (batch size). Click **Export** to compile if needed.
 
@@ -76,7 +76,7 @@ Select a TensorRT engine matching your region count (batch size). Click **Export
 ### Stage 3 — Memory Bank
 Upload good (defect-free) sample images as ZIP or multi-file. Click **Extract Features** to build the FAISS index, or **Skip & Use Existing** to load a previously saved bank.
 
-![alt text](assets/mb.png)
+![Memory_bank](./assets/mb.png)
 
 ### Stage 4 — Detection & Analysis
 Upload a test image. The system preprocesses it → extracts features → searches the FAISS bank → generates heatmaps. Results appear in the **Detailed Analysis** view:
@@ -87,11 +87,11 @@ Upload a test image. The system preprocesses it → extracts features → search
 
 Use the **Heatmap Alpha** slider to control overlay intensity. The **Anomaly Score** card and status badge update live as you adjust the threshold.
 
-![alt text](assets/inference_1.png)
+![Inference_1](./assets/inference_1.png)
 
-![alt text](assets/final_params.png)
+![Final_params](./assets/final_params.png)
 
-![alt text](assets/final_preds.png)
+![Final_preds](./assets/final_preds.png)
 ---
 
 ## 🗂️ Project Structure

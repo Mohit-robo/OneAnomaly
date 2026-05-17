@@ -4,6 +4,21 @@ All notable changes to the **OneAnomaly** / **Anomaly Detection App** project.
 
 ---
 
+## [v1.5.0] - 2026-05-17
+
+### 🚀 Phase 5: Confirmation & Final Inference (Batch)
+- **Batch Processing Workspace**: Implemented a comprehensive Step 5 dashboard for high-volume inference, summary statistics, and final exports.
+- **Side-by-Side Batch Grid**: Added a paginated (10 per page) results grid that renders both the clean source image and the anomaly heatmap side-by-side within each card.
+- **Interactive Filtering**: Added All / Anomaly / Normal tab filters to instantly sort batch results.
+- **Lightbox Inspection**: Clicking any result card now launches a fluid, full-screen lightbox displaying the high-resolution Matplotlib `torch_res_*.png` composite (Escape key supported).
+- **Consolidated Export Pipeline**: The "Download Results" button now sequentially yields a triple-payload:
+  1. **ZIP Archive**: Filtered to contain only the `torch_res_*.png` side-by-side composite images.
+  2. **CSV Report**: Filename, Anomaly Score, and Status mapping based on the live UI threshold.
+  3. **Session JSON**: Comprehensive state dump of all Pre-processing, Spatial, Memory Bank, and Detection parameters for 100% reproducibility.
+- **Memory Bank Override Fix**: Resolved an issue where the memory bank dropdown remained empty by aligning the API payload key (`memory_banks`).
+
+
+
 ## [v1.4.0] - 2026-05-16
 
 ### 🔧 Critical Fix: Anomaly Heatmap Display (Black Canvas → img tag)

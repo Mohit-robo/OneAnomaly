@@ -197,3 +197,21 @@ HTML `<canvas>` should only be used when you need to perform pixel-level operati
 - No race conditions with `complete`/`naturalWidth`
 - Works even when images come from a different origin
 - The browser's native image renderer is more optimized than canvas `drawImage` for display purposes
+
+---
+
+## 18 — Multiple File Downloads from a Single Button Click
+
+**Issue:**  
+In Phase 5, the "Download Results" button needs to trigger the download of three distinct files (ZIP from server, CSV generated client-side, JSON generated client-side). Attempting to trigger all three sequentially without yielding caused browsers (particularly Chrome) to block the second and third downloads as a "Pop-up/Anti-Spam" protection measure.
+
+**Solution used:**  
+Introduced artificial asynchronous delays between the download triggers:
+```javascript
+window.open(url1, '_blank');
+await new Promise(r => setTimeout(r, 600)); // Yield to browser UI thread
+// Trigger URL 2...
+await new Promise(r => setTimeout(r, 400));
+// Trigger URL 3...
+```
+This spacing guarantees the browser processes each as a distinct user-initiated pseudo-action, bypassing the simultaneous-download blocker without requiring users to tweak site permission settings.

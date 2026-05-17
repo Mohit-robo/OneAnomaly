@@ -6,11 +6,11 @@ A production-ready **web application** for detecting surface defects in industri
 
 ## ✨ Features
 
-- **4-Stage Guided Workflow** — Preprocessing → Spatial → Memory Bank → Detection, with stage locking
+- **5-Stage Guided Workflow** — Preprocessing → Spatial → Memory Bank → Detection → Confirmation & Export
 - **Spatial Region Analysis** — Detect anomalies in specific zones (manual draw or auto quadrant)
 - **TensorRT Acceleration** — Export DINOv3 ONNX → TRT engine in-browser with real-time progress
 - **Memory Bank Management** — Save, load, and switch between named FAISS feature banks
-- **Side-by-Side Inspection** — Source image vs. JET heatmap overlay with adjustable opacity
+- **Side-by-Side Batch Inspection** — Source image vs. JET heatmap overlay with adjustable opacity
 - **Live Parameter Inspector** — Right-side panel tracking all session config in real time
 - **Session Storage** — All result artifacts (`_source.png`, `_overlay.png`, etc.) persisted per run
 
@@ -40,7 +40,13 @@ See `docs/SETUP_DINOV3.md` for download instructions.
 cd python
 python api_server.py
 ```
-Open **http://localhost:5000** in your browser.
+
+```bash
+cd public
+python3 -m http.server 8000
+```
+
+Open **http://localhost:8000** in your browser.
 
 > **Note**: The Flask server serves both the frontend and the ML API. No Node.js server needed.
 
@@ -51,16 +57,26 @@ Open **http://localhost:5000** in your browser.
 ### Stage 1 — Preprocessing
 Select **Intensity Thresholding** or **Averaged Background Subtraction**. Adjust sliders and watch the live preview grid update. Click **Save & Continue**.
 
+![Pre-proc-1](assets/Prep_proc_1.png) 
+
+![Pre-proc-2](assets/Prep_proc_2.png) 
+
+
 ### Stage 2 — Spatial Regions
 Define inspection zones:
 - **Manual Draw** — Click and drag to draw bounding boxes on a preview image
 - **Quadrant Grid** — Automatic 2×2 split
 - **No Split** — Full-image mode
 
+![alt text](Spatial_region.png)
+
 Select a TensorRT engine matching your region count (batch size). Click **Export** to compile if needed.
+
 
 ### Stage 3 — Memory Bank
 Upload good (defect-free) sample images as ZIP or multi-file. Click **Extract Features** to build the FAISS index, or **Skip & Use Existing** to load a previously saved bank.
+
+![alt text](assets/mb.png)
 
 ### Stage 4 — Detection & Analysis
 Upload a test image. The system preprocesses it → extracts features → searches the FAISS bank → generates heatmaps. Results appear in the **Detailed Analysis** view:
@@ -71,6 +87,11 @@ Upload a test image. The system preprocesses it → extracts features → search
 
 Use the **Heatmap Alpha** slider to control overlay intensity. The **Anomaly Score** card and status badge update live as you adjust the threshold.
 
+![alt text](assets/inference_1.png)
+
+![alt text](assets/final_params.png)
+
+![alt text](assets/final_preds.png)
 ---
 
 ## 🗂️ Project Structure
@@ -112,25 +133,3 @@ anomaly_app/
 | Heatmap | JET colormap via `cv2.applyColorMap` |
 
 ---
-
-## 📁 Result Artifacts (per detection run)
-
-| File | Content |
-|---|---|
-| `<stem>_source.png` | Preprocessed input image (clean reference) |
-| `<stem>_overlay.png` | Heatmap blended over source (α=0.5) |
-| `<stem>_heatmap.png` | Pure JET colormap heatmap |
-| `<stem>_annotated.png` | Source with score text annotation |
-| `torch_res_<stem>.png` | Matplotlib side-by-side comparison plot |
-
----
-
-## 📚 Documentation
-
-| File | Description |
-|---|---|
-| `docs/project.md` | Architecture, API reference, design decisions |
-| `docs/todo.md` | Feature checklist by stage |
-| `docs/lessons.md` | Bugs encountered, root causes, and fixes |
-| `docs/SETUP_DINOV3.md` | Model weight download and TRT engine setup |
-| `CHANGELOG.md` | Version history |

@@ -1134,3 +1134,37 @@ label {
     border: 2px solid var(--accent-primary);
     background: var(--bg-hover);
 }
+
+/* ================================================================
+   Phase 5 — Batch Filter Buttons & Results
+   ================================================================ */
+.batch-filter-btn.active {
+    background: var(--accent-primary);
+    color: #fff;
+    border-color: var(--accent-primary);
+}
+
+.batch-filter-btn {
+    transition: var(--transition-fast);
+}
+
+#batch-results-grid > div {
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    cursor: default;
+}
+
+#batch-results-grid > div:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
+}
+
+#batch-prev-btn:disabled,
+#batch-next-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+#phase5-param-summary div[style*="display:grid"] {
+    animation: fadeIn 0.3s ease;
+}

@@ -83,6 +83,18 @@
                         <li class="sub-task">Results Explorer</li>
                     </ul>
                 </li>
+                <!-- Stage 5 -->
+                <li class="stage" id="stage-confirm">
+                    <div class="stage-header">
+                        <span class="stage-number">5</span>
+                        <span class="stage-name">Confirm &amp; Export</span>
+                    </div>
+                    <ul class="sub-tasks">
+                        <li class="sub-task">Parameter Review</li>
+                        <li class="sub-task">Batch Inference</li>
+                        <li class="sub-task">Results &amp; Export</li>
+                    </ul>
+                </li>
             </ul>
         </nav>
 
@@ -496,6 +508,133 @@
                     </div>
                   </div>
               </div>
+          </div>
+
+
+          <!-- Stage 5: Confirmation & Final Inference -->
+          <div id="page-confirm" class="step-page">
+              <div class="workspace-header">
+                  <h1>Confirmation &amp; Final Inference</h1>
+                  <p>Review your full pipeline configuration, run the complete test batch, and export all results.</p>
+              </div>
+
+              <!-- 5.1 Parameter Summary -->
+              <div class="module-card">
+                  <div class="card-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                      <h3>Pipeline Configuration Summary</h3>
+                      <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                          <path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                  </div>
+                  <div class="card-content">
+                      <div id="phase5-param-summary">
+                          <!-- Populated by JS when entering Stage 5 -->
+                          <p style="color: var(--text-tertiary); text-align: center; padding: 16px 0;">Complete Stages 1–4 to see the full parameter summary here.</p>
+                      </div>
+                  </div>
+              </div>
+
+              <!-- 5.2 Batch Upload & Run -->
+              <div class="module-card" style="margin-top: 16px;">
+                  <div class="card-header">
+                      <h3>Batch Inference</h3>
+                  </div>
+                  <div class="card-content">
+                      <div class="input-row">
+                          <div class="input-group full-width">
+                              <label for="batch-upload">Upload Test Set (ZIP or Multiple Images — No Image Limit)</label>
+                              <input type="file" id="batch-upload" class="file-input" multiple accept="image/*,.zip">
+                          </div>
+                      </div>
+                      <div class="input-row" style="margin-top: 12px;">
+                          <div class="input-group">
+                              <label for="batch-threshold">Anomaly Threshold <span id="batch-threshold-val" style="font-weight:bold; margin-left:8px;">0.50</span></label>
+                              <input type="range" id="batch-threshold" class="slider" min="0" max="1" step="0.01" value="0.5"
+                                  oninput="document.getElementById('batch-threshold-val').innerText = parseFloat(this.value).toFixed(2)">
+                          </div>
+                          <div class="input-group">
+                              <label for="batch-bank-select">Memory Bank Override</label>
+                              <select id="batch-bank-select" class="select-input">
+                                  <option value="">-- Use currently loaded bank --</option>
+                              </select>
+                          </div>
+                      </div>
+                  </div>
+                  <div class="card-footer">
+                      <button class="btn btn-primary" id="batch-run-btn">▶&nbsp; Run Final Inference</button>
+                      <span id="batch-status" class="status-msg"></span>
+                  </div>
+              </div>
+
+              <!-- 5.3 Paginated Results Display -->
+              <div id="batch-results-section" class="module-card" style="display: none; margin-top: 16px;">
+                  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                      <h3>Results</h3>
+                      <div style="display: flex; gap: 8px; align-items: center;" id="batch-summary-chips">
+                          <!-- JS injects: total / anomaly / normal chips -->
+                      </div>
+                  </div>
+                  <div class="card-content">
+                      <!-- Filter Tabs -->
+                      <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+                          <button class="btn btn-secondary btn-sm batch-filter-btn active" data-filter="all" id="filter-all-btn">All</button>
+                          <button class="btn btn-secondary btn-sm batch-filter-btn" data-filter="anomaly" id="filter-anomaly-btn">⚠ Anomaly</button>
+                          <button class="btn btn-secondary btn-sm batch-filter-btn" data-filter="normal" id="filter-normal-btn">✓ Normal</button>
+                      </div>
+                      <!-- Results Grid: thumbnails -->
+                      <div id="batch-results-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px;">
+                          <!-- Injected by JS -->
+                      </div>
+                      <!-- Pagination Controls -->
+                      <div id="batch-pagination" style="display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 24px;">
+                          <button class="btn btn-secondary btn-sm" id="batch-prev-btn">← Prev</button>
+                          <span id="batch-page-indicator" style="font-size: 13px; color: var(--text-secondary);"></span>
+                          <button class="btn btn-secondary btn-sm" id="batch-next-btn">Next →</button>
+                      </div>
+                  </div>
+              </div>
+
+              <!-- 5.4 Export -->
+              <div id="batch-export-section" class="module-card" style="display: none; margin-top: 16px; margin-bottom: 32px;">
+                  <div class="card-header">
+                      <h3>Export Results</h3>
+                  </div>
+                  <div class="card-content">
+                      <div style="display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;">
+                          <div style="flex:1; min-width: 260px;">
+                              <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Downloads 3 files in one click:</p>
+                              <ul style="font-size: 12px; color: var(--text-tertiary); padding-left: 16px; margin-bottom: 0; line-height: 2;">
+                                  <li><strong style="color: var(--text-secondary);">ZIP</strong> — heatmap overlay images only</li>
+                                  <li><strong style="color: var(--text-secondary);">CSV</strong> — filename, anomaly score, OK / Not-OK</li>
+                                  <li><strong style="color: var(--text-secondary);">JSON</strong> — full pipeline session config</li>
+                              </ul>
+                          </div>
+                          <div style="display: flex; align-items: center;">
+                              <button class="btn btn-primary" id="download-batch-btn" style="padding: 12px 28px; font-size: 14px;">&#8681;&nbsp; Download Results</button>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div> <!-- End #page-confirm -->
+
+          <!-- Batch Lightbox Modal -->
+          <div id="batch-lightbox" style="display:none; position:fixed; inset:0; z-index:9000; background:rgba(0,0,0,0.88); backdrop-filter:blur(6px); flex-direction:column; align-items:center; justify-content:center; padding: 24px;" onclick="if(event.target===this) closeBatchLightbox();">
+              <div style="position:relative; max-width:900px; width:100%; background: var(--bg-surface-elevated); border: 1px solid var(--border-strong); border-radius: var(--radius-md); overflow:hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.8);">
+                  <!-- Header -->
+                  <div style="display:flex; justify-content:space-between; align-items:center; padding: 14px 18px; border-bottom: 1px solid var(--border-subtle);">
+                      <div style="display:flex; align-items:center; gap:12px;">
+                          <span id="lb-filename" style="font-size:14px; font-weight:600;"></span>
+                          <span id="lb-score" style="font-size:12px; color: var(--text-tertiary);"></span>
+                          <span id="lb-badge" style="font-size:11px; font-weight:700; padding: 2px 10px; border-radius:20px; background:rgba(255,255,255,0.05);"></span>
+                      </div>
+                      <button onclick="closeBatchLightbox()" style="background:none; border: 1px solid var(--border-strong); color: var(--text-secondary); border-radius: var(--radius-sm); padding: 4px 12px; cursor:pointer; font-size:13px;" title="Close (Esc)">✕ Close</button>
+                  </div>
+                  <!-- Image -->
+                  <div style="background:#000; display:flex; align-items:center; justify-content:center; max-height:75vh; overflow:hidden;">
+                      <img id="lb-img" src="" alt="Enlarged anomaly overlay" style="max-width:100%; max-height:75vh; object-fit:contain; display:block;">
+                  </div>
+              </div>
+              <div style="margin-top:12px; font-size:12px; color:rgba(255,255,255,0.35);">Press <kbd style="background:rgba(255,255,255,0.1); padding:1px 6px; border-radius:3px;">Esc</kbd> or click outside to close</div>
           </div>
 
             <!-- Blocking Overlay -->

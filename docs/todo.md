@@ -67,11 +67,13 @@
 - [x] Heatmap alpha slider controlling overlay opacity (CSS-based, no canvas)
 - [x] Download results as ZIP
 
-### 🔜 Pending
-- [ ] Region-level score breakdown in the detailed analysis view
-- [ ] Paginated results when batch size > 1 (currently always shows first result)
-- [ ] CSV metadata export alongside ZIP download
-- [ ] "Save session history" as JSON for reproducibility
+### ✅ Done (Phase 4 & 5)
+- [x] Region-level score breakdown in the detailed analysis view
+- [x] Paginated results when batch size > 1 (Stage 5 grid)
+- [x] CSV metadata export alongside ZIP download
+- [x] "Save session history" as JSON for reproducibility
+- [x] Batch filter (All / Anomaly / Normal)
+- [x] Enlarge / lightbox view for side-by-side original + heatmap overlays
 
 ---
 

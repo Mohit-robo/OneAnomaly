@@ -761,18 +761,21 @@ def download_results(session_id):
         if not session_dir.exists():
             return jsonify({'error': 'Session not found'}), 404
         
-        # Create zip file
+        # Create zip file — overlay images only (heatmap baked over source)
         zip_path = OUTPUT_DIR / f"{session_id}_results.zip"
         
-        with zipfile.ZipFile(zip_path, 'w') as zipf:
-            for file in session_dir.rglob('*'):
-                if file.is_file():
-                    zipf.write(file, file.relative_to(session_dir))
+        with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
+            overlay_files = sorted(session_dir.glob('torch_res_*.png'))
+            if not overlay_files:
+                # Fallback: include everything if no overlays found
+                overlay_files = [f for f in session_dir.rglob('*') if f.is_file()]
+            for file in overlay_files:
+                zipf.write(file, file.name)
         
         return send_file(
             zip_path,
             as_attachment=True,
-            download_name=f"{session_id}_results.zip"
+            download_name=f"{session_id}_overlays.zip"
         )
     
     except Exception as e:
@@ -790,6 +793,31 @@ def get_image(session_id, filename):
         
         return send_file(image_path, mimetype='image/png')
     
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/save_session', methods=['POST'])
+def save_session():
+    """Save the full pipeline session config as a JSON file for reproducibility."""
+    try:
+        payload = request.json
+        if not payload:
+            return jsonify({'error': 'No session data provided'}), 400
+
+        sessions_dir = OUTPUT_DIR / 'sessions'
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+
+        session_id = payload.get('session_id') or ('session_' + str(int(time.time() * 1000)))
+        filename = f"{session_id}_config.json"
+        save_path = sessions_dir / filename
+
+        with open(save_path, 'w') as f:
+            json.dump(payload, f, indent=4)
+
+        print(f"Session config saved: {save_path}")
+        return jsonify({'success': True, 'filename': filename, 'path': str(save_path)})
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -932,6 +960,7 @@ if __name__ == '__main__':
     print("  POST /api/detect_anomalies")
     print("  GET  /api/download_results/<session_id>")
     print("  GET  /api/get_image/<session_id>/<filename>")
+    print("  POST /api/save_session")
     print("\n" + "="*60 + "\n")
     
     app.run(host='0.0.0.0', port=5000, debug=True)

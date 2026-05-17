@@ -161,7 +161,7 @@ This is the production path. Full sub-pipeline:
   - Phase 1: pre-proc mode + params
   - Phase 2: region config, model BS, image size
   - Phase 3: memory bank name, bank size, k
-  - Phase 4: τ (threshold), σ, n_max
+  - Phase 4: τ (threshold), σ, v_max
 - User can override any value manually at this step before final run
 
 ### 5.2 Upload Test Set & Run
@@ -173,12 +173,12 @@ This is the production path. Full sub-pipeline:
 - **Not OK images** → flagged as anomalous; user can optionally upload `gt_mask` per image for IoU-based accuracy measurement
 
 ### 5.3 Results Display
-- Show a subset of Not-OK detections in UI (paginated, configurable)
+- Show a subset of OK/ Not-OK detections in UI (paginated, configurable)
 - For each: anomaly score, heatmap overlay, region-level breakdown
 - If `gt_mask` provided: compute pixel-level IoU, show per-image accuracy
 
 ### 5.4 Export & Session Management
-- **Download all results:** ZIP with annotated images + CSV (filename, score, region scores, OK/Not-OK label)
+- **Download all results:** ZIP with original + annotated images stack + CSV (filename, score, region scores, OK/Not-OK label)
 - **Save session history:** full session config snapshot (all params + model paths + FAISS index reference) saved as JSON — enables reproducibility and reloading
 
 ---

@@ -241,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Toggle Pages
         document.querySelectorAll('.step-page').forEach(page => page.classList.remove('active'));
-        const pageIds = ['page-preprocessing', 'page-spatial', 'page-memory', 'page-detect'];
+        const pageIds = ['page-preprocessing', 'page-spatial', 'page-memory', 'page-detect', 'page-confirm'];
         const activePage = document.getElementById(pageIds[stage - 1]);
         if (activePage) {
             activePage.classList.add('active');
@@ -254,6 +254,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Refresh banks when entering detection stage
         if (stage === 4) {
             if (typeof loadExistingBanks === 'function') loadExistingBanks();
+        }
+        // Populate Phase 5 param summary + batch bank list when entering stage 5
+        if (stage === 5) {
+            buildPhase5ParamSummary();
+            loadBatchBanks();
         }
     }
 
@@ -1042,6 +1047,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.results && data.results.length > 0) {
                 // Auto-activate the first (primary) result in the detailed pane
                 showDetailedAnalysis(data.results[0], data.session_id);
+                // Unlock Stage 5 after first detection
+                if (maxUnlockedStage < 5) maxUnlockedStage = 5;
+                updateStageUI(currentStage); // re-render sidebar without navigating
             }
 
         } catch (error) {
@@ -1052,7 +1060,392 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Trigger UI show for Stage 1 on init
+    // =========================================================================
+    // STAGE 5: CONFIRMATION & FINAL INFERENCE
+    // =========================================================================
+
+    // Phase 5 state
+    let batchResults = [];
+    let batchSessionId = null;
+    let batchCurrentPage = 1;
+    const batchPageSize = 10;
+    let batchFilteredResults = [];
+    let currentBatchFilter = 'all';
+
+    // Populate the param summary card when entering Stage 5
+    function buildPhase5ParamSummary() {
+        const el = document.getElementById('phase5-param-summary');
+        if (!el) return;
+
+        const config = getCurrentConfig();
+        const spatialMode = (document.querySelector('input[name="spatial_mode"]:checked') || {}).value || 'N/A';
+        const engineEl = document.getElementById('existing-engine-select');
+        const engine = engineEl ? (engineEl.options[engineEl.selectedIndex] || {}).text : 'None';
+        const bankName = loadedBankName || document.getElementById('memory-bank-name')?.value || 'None';
+        const threshold = document.getElementById('anomaly-threshold')?.value || '0.50';
+        const alpha = document.getElementById('heatmap-alpha')?.value || '0.50';
+
+        const row = (label, value, color='') => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding: 8px 0; border-bottom: 1px solid var(--border-subtle);">
+                <span style="color: var(--text-tertiary); font-size: 13px;">${label}</span>
+                <span style="font-weight: 600; font-size: 13px; ${color ? 'color:'+color : ''}">${value}</span>
+            </div>`;
+
+        const section = (title, rows) => `
+            <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 16px; margin-bottom: 12px;">
+                <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-primary); margin-bottom: 12px;">${title}</div>
+                ${rows}
+            </div>`;
+
+        let s1rows = row('Mode', config.mode === 'thresholding' ? 'Intensity Thresholding' : 'Avg. Background Subtraction');
+        if (config.mode === 'thresholding') {
+            s1rows += row('Channel', config.channel || 'gray');
+            s1rows += row('Intensity Range', `${config.thresh_min} – ${config.thresh_max}`);
+            s1rows += row('Morph Open / Close', `${config.morph_open} / ${config.morph_close}`);
+        } else {
+            s1rows += row('Diff Threshold', config.diff_threshold);
+            s1rows += row('Fill Holes', config.fill_holes ? 'Yes' : 'No');
+            s1rows += row('Min Component Ratio', config.min_component_ratio);
+        }
+
+        const spatialLabel = {grid: 'Quadrant Grid (2×2)', manual: 'Manual Regions', whole: 'Whole Image'};
+        const s2rows = row('Spatial Mode', spatialLabel[spatialMode] || spatialMode)
+            + row('TRT Engine', engine)
+            + (spatialMode === 'manual' ? row('Region Count', manualRegions.length + ' boxes') : '');
+
+        const s3rows = row('Memory Bank', bankName || 'Not loaded', bankName ? '#10b981' : '#ef4444');
+        const s4rows = row('Anomaly Threshold (τ)', parseFloat(threshold).toFixed(2))
+            + row('Heatmap Opacity (α)', parseFloat(alpha).toFixed(2));
+
+        el.innerHTML =
+            '<div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">' +
+            '<div>' + section('Stage 1 — Preprocessing', s1rows) + section('Stage 3 — Memory Bank', s3rows) + '</div>' +
+            '<div>' + section('Stage 2 — Spatial Regions', s2rows) + section('Stage 4 — Detection Params', s4rows) + '</div>' +
+            '</div>';
+    }
+
+    // Populate batch bank dropdown for Stage 5
+    async function loadBatchBanks() {
+        try {
+            const resp = await fetch(`${API_BASE}/api/list_memory_banks`);
+            const data = await resp.json();
+            const sel = document.getElementById('batch-bank-select');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">-- Use currently loaded bank --</option>';
+            (data.memory_banks || []).forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = b;
+                opt.text = b;
+                sel.appendChild(opt);
+            });
+        } catch(e) { /* silent */ }
+    }
+
+    // Lightbox open/close
+    window.openBatchLightbox = function(src, filename, score, badge, color) {
+        const lb = document.getElementById('batch-lightbox');
+        if (!lb) return;
+        document.getElementById('lb-img').src = src;
+        document.getElementById('lb-filename').innerText = filename;
+        document.getElementById('lb-score').innerText = 'Score: ' + score;
+        document.getElementById('lb-badge').innerText = badge;
+        document.getElementById('lb-badge').style.color = color;
+        lb.style.display = 'flex';
+    };
+
+    window.closeBatchLightbox = function() {
+        const lb = document.getElementById('batch-lightbox');
+        if (lb) lb.style.display = 'none';
+    };
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') window.closeBatchLightbox();
+    });
+
+    // Render a page of the batch results grid
+    function renderBatchGrid() {
+        const grid = document.getElementById('batch-results-grid');
+        const pageIndicator = document.getElementById('batch-page-indicator');
+        const prevBtn = document.getElementById('batch-prev-btn');
+        const nextBtn = document.getElementById('batch-next-btn');
+        if (!grid) return;
+
+        const totalPages = Math.max(1, Math.ceil(batchFilteredResults.length / batchPageSize));
+        batchCurrentPage = Math.min(batchCurrentPage, totalPages);
+        const start = (batchCurrentPage - 1) * batchPageSize;
+        const page = batchFilteredResults.slice(start, start + batchPageSize);
+
+        const threshold = parseFloat(document.getElementById('batch-threshold').value);
+
+        grid.innerHTML = page.map(res => {
+            const stem = res.filename.split('.').slice(0, -1).join('.');
+            const sourceSrc  = `${API_BASE}/api/get_image/${batchSessionId}/${stem}_source.png`;
+            const overlaySrc = `${API_BASE}/api/get_image/${batchSessionId}/${stem}_overlay.png`;
+            const torchSrc   = `${API_BASE}/api/get_image/${batchSessionId}/torch_res_${stem}.png`;
+            const isAnomaly  = res.anomaly_score > threshold;
+            const badgeColor = isAnomaly ? '#ef4444' : '#10b981';
+            const badgeText  = isAnomaly ? '⚠ ANOMALY' : '✓ NORMAL';
+            const scoreStr   = res.anomaly_score.toFixed(4);
+            const esc        = res.filename.replace(/'/g, "\\'");
+            return `
+                <div onclick="openBatchLightbox('${torchSrc}', '${esc}', '${scoreStr}', '${badgeText}', '${badgeColor}')"
+                     style="background: var(--bg-surface-elevated); border: 1px solid ${isAnomaly ? '#ef444440' : '#10b98130'};
+                            border-radius: var(--radius-sm); overflow:hidden; display:flex; flex-direction:column;
+                            cursor:pointer; transition: transform 0.15s ease, box-shadow 0.15s ease;"
+                     onmouseenter="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 8px 20px rgba(0,0,0,0.5)';"
+                     onmouseleave="this.style.transform=''; this.style.boxShadow='';">
+                    <!-- Side-by-side image strip -->
+                    <div style="display:flex; gap:1px; background:#111; overflow:hidden; position:relative;">
+                        <div style="flex:1; overflow:hidden;">
+                            <img src="${sourceSrc}" alt="Original"
+                                 style="width:100%; aspect-ratio:1; object-fit:cover; display:block;"
+                                 onerror="this.style.background='#1a1a1a'">
+                        </div>
+                        <div style="flex:1; overflow:hidden; position:relative;">
+                            <img src="${overlaySrc}" alt="Anomaly map"
+                                 style="width:100%; aspect-ratio:1; object-fit:cover; display:block;"
+                                 onerror="this.style.background='#1a1a1a'">
+                            <div style="position:absolute; top:5px; right:5px; background:${badgeColor}22;
+                                        border:1px solid ${badgeColor}; color:${badgeColor};
+                                        font-size:9px; font-weight:700; padding:1px 7px; border-radius:20px;">
+                                ${badgeText}
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Column labels -->
+                    <div style="display:flex; border-top:1px solid var(--border-subtle);">
+                        <div style="flex:1; font-size:9px; color:var(--text-tertiary); text-align:center; padding:3px 0; border-right:1px solid var(--border-subtle);">Original</div>
+                        <div style="flex:1; font-size:9px; color:var(--text-tertiary); text-align:center; padding:3px 0;">Anomaly Map</div>
+                    </div>
+                    <!-- Info row -->
+                    <div style="padding: 9px 12px; display:flex; justify-content:space-between; align-items:center;">
+                        <div style="font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;" title="${res.filename}">${res.filename}</div>
+                        <div style="font-size:11px; color:${badgeColor}; font-weight:700; margin-left:8px; flex-shrink:0;">${scoreStr}</div>
+                    </div>
+                </div>`;
+        }).join('');
+
+        pageIndicator.innerText = `Page ${batchCurrentPage} of ${totalPages}  (${batchFilteredResults.length} images)`;
+        prevBtn.disabled = batchCurrentPage <= 1;
+        nextBtn.disabled = batchCurrentPage >= totalPages;
+    }
+
+    window.changeBatchPage = function(delta) {
+        batchCurrentPage += delta;
+        renderBatchGrid();
+    };
+
+    window.applyBatchFilter = function(filter, btn) {
+        currentBatchFilter = filter;
+        document.querySelectorAll('.batch-filter-btn').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        const threshold = parseFloat(document.getElementById('batch-threshold').value);
+        if (filter === 'all') {
+            batchFilteredResults = [...batchResults];
+        } else if (filter === 'anomaly') {
+            batchFilteredResults = batchResults.filter(r => r.anomaly_score > threshold);
+        } else {
+            batchFilteredResults = batchResults.filter(r => r.anomaly_score <= threshold);
+        }
+        batchCurrentPage = 1;
+        renderBatchGrid();
+        // Update summary chips
+        const chips = document.getElementById('batch-summary-chips');
+        if (chips) chips.innerHTML = buildSummaryChips(threshold);
+    };
+
+    function buildSummaryChips(threshold) {
+        const total = batchResults.length;
+        const anomCount = batchResults.filter(r => r.anomaly_score > threshold).length;
+        const normCount = total - anomCount;
+        return `
+            <span style="font-size:12px; background:rgba(255,255,255,0.05); border:1px solid var(--border-subtle); padding:3px 10px; border-radius:20px;">${total} Total</span>
+            <span style="font-size:12px; background:#ef444415; border:1px solid #ef444440; color:#ef4444; padding:3px 10px; border-radius:20px;">⚠ ${anomCount} Anomaly</span>
+            <span style="font-size:12px; background:#10b98115; border:1px solid #10b98140; color:#10b981; padding:3px 10px; border-radius:20px;">✓ ${normCount} Normal</span>`;
+    }
+
+    // Batch Run button
+    document.getElementById('batch-run-btn').addEventListener('click', async () => {
+        const files = document.getElementById('batch-upload').files;
+        const bankOverride = document.getElementById('batch-bank-select').value;
+        const statusSpan = document.getElementById('batch-status');
+        const btn = document.getElementById('batch-run-btn');
+
+        if (files.length === 0) {
+            showStatus(statusSpan, 'Please upload test images or a ZIP file.', true);
+            return;
+        }
+
+        btn.innerText = 'Running...';
+        btn.disabled = true;
+        statusSpan.innerText = '';
+
+        try {
+            // Load a different bank if selected
+            if (bankOverride) {
+                statusSpan.innerText = 'Loading memory bank...';
+                const loadResp = await fetch(`${API_BASE}/api/load_memory_bank`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: bankOverride })
+                });
+                const ld = await loadResp.json();
+                if (ld.error) throw new Error('Bank load failed: ' + ld.error);
+                loadedBankName = bankOverride;
+            }
+
+            const sessionId = 'batch_' + new Date().getTime();
+            batchSessionId = sessionId;
+
+            const formData = new FormData();
+            formData.append('session_id', sessionId);
+            Array.from(files).forEach(file => {
+                if (file.name.endsWith('.zip')) {
+                    formData.append('zip_file', file);
+                } else {
+                    formData.append('files', file);
+                }
+            });
+            formData.append('threshold', document.getElementById('batch-threshold').value);
+            formData.append('alpha', '0.6');
+
+            statusSpan.innerText = 'Running inference...';
+            const response = await fetch(`${API_BASE}/api/detect_anomalies`, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+
+            batchResults = data.results || [];
+            batchSessionId = data.session_id;
+
+            const threshold = parseFloat(document.getElementById('batch-threshold').value);
+            const anomCount = batchResults.filter(r => r.anomaly_score > threshold).length;
+
+            showStatus(statusSpan, `Done: ${batchResults.length} images processed. ${anomCount} anomalies detected.`);
+            showToast('Batch Inference Complete',
+                `${batchResults.length} images | ${anomCount} anomalies | ${batchResults.length - anomCount} normal`,
+                anomCount > 0 ? 'error' : 'success');
+
+            // Show results + export sections
+            document.getElementById('batch-results-section').style.display = 'block';
+            document.getElementById('batch-export-section').style.display = 'block';
+
+            // Populate chips and grid
+            const chips = document.getElementById('batch-summary-chips');
+            if (chips) chips.innerHTML = buildSummaryChips(threshold);
+
+            batchFilteredResults = [...batchResults];
+            batchCurrentPage = 1;
+            currentBatchFilter = 'all';
+            document.querySelectorAll('.batch-filter-btn').forEach(b => b.classList.remove('active'));
+            const allBtn = document.getElementById('filter-all-btn');
+            if (allBtn) allBtn.classList.add('active');
+            renderBatchGrid();
+
+            document.getElementById('batch-results-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        } catch (err) {
+            showStatus(statusSpan, err.message, true);
+        } finally {
+            btn.innerText = '▶  Run Final Inference';
+            btn.disabled = false;
+        }
+    });
+
+    // Filter button event listeners
+    document.getElementById('filter-all-btn').addEventListener('click', function() { window.applyBatchFilter('all', this); });
+    document.getElementById('filter-anomaly-btn').addEventListener('click', function() { window.applyBatchFilter('anomaly', this); });
+    document.getElementById('filter-normal-btn').addEventListener('click', function() { window.applyBatchFilter('normal', this); });
+
+    // Pagination button event listeners
+    document.getElementById('batch-prev-btn').addEventListener('click', () => window.changeBatchPage(-1));
+    document.getElementById('batch-next-btn').addEventListener('click', () => window.changeBatchPage(1));
+
+    // Unified Download — ZIP (overlay images only) + CSV + Session JSON
+    document.getElementById('download-batch-btn').addEventListener('click', async () => {
+        if (!batchSessionId) {
+            showToast('No Results', 'Run batch inference first.', 'error');
+            return;
+        }
+        const btn = document.getElementById('download-batch-btn');
+        btn.innerText = 'Preparing...';
+        btn.disabled = true;
+        try {
+            const threshold = parseFloat(document.getElementById('batch-threshold').value);
+
+            // 1. ZIP of overlay images from server
+            window.open(`${API_BASE}/api/download_results/${batchSessionId}`, '_blank');
+
+            // Small delay between downloads to avoid browser blocking
+            await new Promise(r => setTimeout(r, 600));
+
+            // 2. Results CSV
+            const rows = [['filename', 'anomaly_score', 'status']];
+            batchResults.forEach(r => {
+                rows.push([r.filename, r.anomaly_score.toFixed(6), r.anomaly_score > threshold ? 'ANOMALY' : 'NORMAL']);
+            });
+            const csvBlob = new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' });
+            const csvUrl = URL.createObjectURL(csvBlob);
+            const csvLink = document.createElement('a');
+            csvLink.href = csvUrl;
+            csvLink.download = `${batchSessionId}_results.csv`;
+            document.body.appendChild(csvLink);
+            csvLink.click();
+            document.body.removeChild(csvLink);
+            URL.revokeObjectURL(csvUrl);
+
+            await new Promise(r => setTimeout(r, 400));
+
+            // 3. Session config JSON
+            const config = getCurrentConfig();
+            const spatialMode = (document.querySelector('input[name="spatial_mode"]:checked') || {}).value || '';
+            const engineEl = document.getElementById('existing-engine-select');
+            const sessionPayload = {
+                timestamp: new Date().toISOString(),
+                session_id: batchSessionId,
+                preprocess_config: config,
+                spatial_config: {
+                    spatial_mode: spatialMode,
+                    engine: engineEl ? engineEl.value : '',
+                    regions: manualRegions
+                },
+                memory_bank: loadedBankName || null,
+                detection_params: {
+                    threshold: threshold,
+                    alpha: parseFloat(document.getElementById('heatmap-alpha')?.value || '0.5')
+                },
+                results_summary: {
+                    total: batchResults.length,
+                    anomaly: batchResults.filter(r => r.anomaly_score > threshold).length,
+                    normal: batchResults.filter(r => r.anomaly_score <= threshold).length
+                }
+            };
+            const jsonBlob = new Blob([JSON.stringify(sessionPayload, null, 2)], { type: 'application/json' });
+            const jsonUrl = URL.createObjectURL(jsonBlob);
+            const jsonLink = document.createElement('a');
+            jsonLink.href = jsonUrl;
+            jsonLink.download = `${batchSessionId}_session_config.json`;
+            document.body.appendChild(jsonLink);
+            jsonLink.click();
+            document.body.removeChild(jsonLink);
+            URL.revokeObjectURL(jsonUrl);
+
+            showToast('Export Complete', '3 files: ZIP (overlays) + CSV + Session JSON', 'success');
+        } catch(err) {
+            showToast('Export Failed', err.message, 'error');
+        } finally {
+            btn.innerText = 'Download Results';
+            btn.disabled = false;
+        }
+    });
+
+    // =========================================================================
+    // END STAGE 5
+    // =========================================================================
+
+        // Trigger UI show for Stage 1 on init
     updateStageUI(1);
     loadExistingEngines();
     loadExistingBanks();

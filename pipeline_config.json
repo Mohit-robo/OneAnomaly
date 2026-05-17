@@ -1,0 +1,24 @@
+{
+    "spatial": {
+        "spatial_mode": "manual",
+        "engine": "dinov3_manual_int30-255_bs2.engine",
+        "regions": [
+            {
+                "x": 65,
+                "y": 72.5,
+                "w": 830,
+                "h": 340
+            },
+            {
+                "x": 64,
+                "y": 410.5,
+                "w": 892,
+                "h": 532
+            }
+        ],
+        "grid_ratios": {
+            "x": 43,
+            "y": 45
+        }
+    }
+}

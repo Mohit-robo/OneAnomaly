@@ -85,7 +85,7 @@ anomaly_app/
 
 ---
 
-## UI Workflow (4-Stage Stepper)
+## UI Workflow (5-Stage Stepper)
 
 ### Stage 1 — Preprocessing
 - Choose **Intensity Thresholding** or **Averaged Background Subtraction**
@@ -106,15 +106,20 @@ anomaly_app/
 - Save bank with a named identifier → unlocks Stage 4
 
 ### Stage 4 — Detection
-- Upload single test image or batch ZIP
-- Preprocessing config applied automatically (same as Stage 1)
-- Performs FAISS similarity search → anomaly score per region
+- Upload single test image or small subset
+- FAISS similarity search → anomaly score per region
 - **Detailed Analysis view**:
   - Left: `_source.png` (clean input reference)
-  - Right: `_overlay.png` (JET heatmap baked over original — pre-computed by backend)
+  - Right: `_overlay.png` (JET heatmap baked over original)
   - Heatmap alpha slider adjusts CSS `opacity` of overlay image (no canvas)
-  - Centered anomaly summary card (score + NORMAL/ANOMALY badge)
-  - Badge and card color are reactive to the threshold slider
+
+### Stage 5 — Confirmation & Batch Export
+- Upload high-volume batch data (ZIP / multi-file)
+- **Read-only Config Dashboard** shows complete session state
+- **Paginated Grid View** (10 per page) with All/Anomaly/Normal filters
+- Click image for full-screen side-by-side Lightbox
+- Adjust final threshold live → updates UI and export status
+- **Single-Click Export**: Downloads overlaid images (ZIP), results metadata (CSV), and reproduceable pipeline config (JSON)
 
 ---
 

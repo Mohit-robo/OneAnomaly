@@ -110,8 +110,14 @@ tensorrt  # Must match system TRT version
 cd python
 python api_server.py
 ```
+In another terminal run 
 
-Server starts on **http://0.0.0.0:5000**. The frontend is served from `../public/`.
+```bash
+cd public
+python3 -m http.server 8000
+```
+
+Server starts on **http://0.0.0.0:8000**. The frontend is served from `../public/`.
 
 ---
 

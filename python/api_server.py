@@ -15,9 +15,10 @@ from flask_cors import CORS
 import numpy as np
 import cv2
 
-from feature_extractor import FeatureExtractor
-from memory_bank import MemoryBank, SpatialMemoryBank
-from anomaly_detector import AnomalyDetector
+import requests
+
+# Gateway Config
+GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://localhost:8080")
 
 # Import from local test scripts
 import sys
@@ -29,27 +30,6 @@ from src.test_bg_subtraction import build_result_grid as build_bg_grid
 from src.test_bg_subtraction import build_averaged_reference, load_images_from_dir
 
 
-app = Flask(__name__)
-CORS(app)
-
-# Global state
-feature_extractor: Optional[FeatureExtractor] = None
-memory_bank: Optional[MemoryBank] = None
-anomaly_detector: Optional[AnomalyDetector] = None
-last_initialized_engine: Optional[str] = None
-
-# Global Preprocessing State
-preprocess_config = {"mode": "thresholding"}
-averaged_bg_reference: Optional[np.ndarray] = None
-
-# Global Spatial State
-spatial_config = {
-    "spatial_mode": "manual",
-    "engine": "dinov3_manual_int30-255_bs3.engine",
-    "regions": [],
-    "grid_ratios": {"x": 50, "y": 50}
-}
-
 # Paths
 BASE_DIR = Path(__file__).parent.parent
 UPLOAD_DIR = BASE_DIR / 'uploads'
@@ -58,6 +38,28 @@ MEMORY_BANK_DIR = BASE_DIR / 'memory_banks'
 MODELS_DIR = BASE_DIR / 'models'
 ENGINE_DIR = MODELS_DIR / 'engine_files'
 BG_REF_PATH = UPLOAD_DIR / 'averaged_bg_reference.npy'
+
+app = Flask(__name__, static_folder=str(BASE_DIR / 'public'), static_url_path='')
+CORS(app)
+
+@app.route('/')
+def serve_index():
+    return app.send_static_file('index.html')
+
+# Session state
+current_session_name = "default_session"
+
+# Global Preprocessing State
+preprocess_config = {"mode": "thresholding"}
+averaged_bg_reference: Optional[np.ndarray] = None
+
+# Global Spatial State
+spatial_config = {
+    "spatial_mode": "manual",
+    "regions": [],
+    "grid_ratios": {"x": 50, "y": 50}
+}
+
 
 # Create directories
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -82,42 +84,6 @@ def save_bg_ref(ref):
 
 # Initial Load
 averaged_bg_reference = load_bg_ref()
-
-
-def initialize_models(force_reinit=False):
-    """Initialize ML models on first request or if engine changed."""
-    global feature_extractor, memory_bank, anomaly_detector, last_initialized_engine
-    
-    current_engine = spatial_config.get('engine')
-    
-    if feature_extractor is None or current_engine != last_initialized_engine or force_reinit:
-        print(f"Initializing feature extractor (Engine: {current_engine})...")
-        
-        # Determine engine path
-        model_path = None
-        if current_engine:
-            model_path = str(ENGINE_DIR / current_engine)
-            print(f"Using selected engine: {model_path}")
-            
-        feature_extractor = FeatureExtractor(
-            model_name='dinov3_vits16',
-            device='cuda',
-            backend='tensorrt',
-            model_path=model_path
-        )
-        
-        last_initialized_engine = current_engine
-        
-        if memory_bank is None:
-            print("Initializing Spatial Memory Bank...")
-            # Start with default 1 region, it will be recreated/adjusted during extraction based on phase 2 context
-            memory_bank = SpatialMemoryBank(
-                num_regions=1,
-                feature_dim=feature_extractor.get_feature_dimension(),
-                use_gpu=True
-            )
-        
-        print("Models initialized successfully!")
 
 
 # Log Capture
@@ -183,7 +149,7 @@ def health_check():
     """Health check endpoint."""
     return jsonify({
         'status': 'healthy',
-        'models_loaded': feature_extractor is not None
+        'models_loaded': True  # Managed by Gateway
     })
 
 
@@ -380,7 +346,6 @@ def extract_features():
         yield json.dumps({'title': 'Extracting...', 'message': 'Initializing extraction...', 'progress': 0}) + '\n'
         
         try:
-            initialize_models()
             
             # Create temporary directory for this request
             temp_dir = UPLOAD_DIR / 'good'
@@ -433,75 +398,42 @@ def extract_features():
                     import random
                     image_files = random.sample(image_files, num_shots)
 
-            yield json.dumps({'title': 'Preprocessing', 'message': f'Processing {len(image_files)} images...', 'progress': 10}) + '\n'
+            yield json.dumps({'title': 'Preprocessing', 'message': f'Sending {len(image_files)} images to Gateway...', 'progress': 10}) + '\n'
 
-            # Ensure spatial memory bank is exactly matching logic
-            all_crops = []
-            import cv2
+            # Combine global config to construct session config
+            config_payload = {
+                "phase1": preprocess_config,
+                "phase2": spatial_config
+            }
+            # Step 1: Sync Session
+            requests.post(f"{GATEWAY_URL}/sync_session", json={
+                "session_name": current_session_name,
+                "config": config_payload
+            })
             
-            total_images = len(image_files)
-            for idx, item in enumerate(image_files):
-                image_bgr = cv2.imread(str(item))
-                if image_bgr is not None:
-                    # 1. Preprocessing mask
-                    if preprocess_config.get('mode') == 'thresholding':
-                        _, masked_img, _ = apply_threshold_mask(
-                            image_bgr,
-                            channel=preprocess_config.get('channel', 'gray'),
-                            thresh_min=preprocess_config.get('thresh_min', 30),
-                            thresh_max=preprocess_config.get('thresh_max', 220),
-                            morph_open=preprocess_config.get('morph_open', 3),
-                            morph_close=preprocess_config.get('morph_close', 5)
-                        )
-                        image_bgr = masked_img
-                    elif preprocess_config.get('mode') == 'average' and averaged_bg_reference is not None:
-                        _, masked_img = apply_bg_mask(
-                            image_bgr,
-                            averaged_bg_reference,
-                            diff_threshold=preprocess_config.get('diff_threshold', 85),
-                            morph_open=preprocess_config.get('morph_open', 5),
-                            morph_close=preprocess_config.get('morph_close', 7),
-                            fill_holes=preprocess_config.get('fill_holes', True),
-                            min_component_ratio=preprocess_config.get('min_component_ratio', 0.1)
-                        )
-                        image_bgr = masked_img
-                    
-                    # 2. Spatial crop
-                    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-                    crops = crop_regions(image_rgb, spatial_config)
-                    all_crops.extend(crops)
-                
-                if (idx + 1) % 5 == 0 or idx == total_images - 1:
-                    progress = 10 + int(70 * (idx + 1) / total_images)
-                    yield json.dumps({'title': 'Preprocessing', 'message': f'Image {idx+1}/{total_images}', 'progress': progress}) + '\n'
-                    
-            global memory_bank
-            num_regions = len(crops) if all_crops else 1
+            # Step 2: Send base64 images
+            yield json.dumps({'title': 'Extraction', 'message': 'Gateway indexing features...', 'progress': 50}) + '\n'
             
-            # Reset memory bank to correctly reflect the regions
-            memory_bank = SpatialMemoryBank(
-                num_regions=num_regions,
-                feature_dim=feature_extractor.get_feature_dimension(),
-                use_gpu=True
-            )
-            if all_crops:
-                 memory_bank.regions_coords = get_spatial_regions(cv2.imread(str(UPLOAD_DIR / image_files[0])).shape, spatial_config)
+            images_b64 = []
+            import base64
+            for item in image_files:
+                with open(item, "rb") as f:
+                    images_b64.append("data:image/jpeg;base64," + base64.b64encode(f.read()).decode('utf-8'))
+                    
+            resp = requests.post(f"{GATEWAY_URL}/build_memory_bank", json={
+                "session_name": current_session_name,
+                "images_b64": images_b64
+            })
+            
+            if resp.status_code != 200:
+                raise Exception(f"Gateway Error: {resp.text}")
 
-            if all_crops:
-                yield json.dumps({'title': 'Extraction', 'message': 'Extracting and indexing features...', 'progress': 85}) + '\n'
-                features, _ = feature_extractor.extract_batch(all_crops)
-                memory_bank.add_features_batch(features, apply_coreset=True)
-                num_features = features.shape[0]
-            else:
-                num_features = 0
+            result_data = resp.json()
 
             yield json.dumps({
                 'success': True,
                 'num_images': len(image_files),
-                'num_features': num_features,
-                'num_features_after_coreset': memory_bank.feature_count(),
-                'num_regions': memory_bank.num_regions,
-                'feature_dim': feature_extractor.get_feature_dimension(),
+                'num_features_after_coreset': result_data.get('n_features_saved', 0),
                 'progress': 100
             }) + '\n'
 
@@ -515,65 +447,24 @@ def extract_features():
 
 @app.route('/api/save_memory_bank', methods=['POST'])
 def save_memory_bank():
-    """
-    Save current memory bank to disk.
-    
-    Expected JSON:
-        - filename: Name for the memory bank file
-    """
+    """Proxy save instruction (Actually gateway saves it automatically during build)."""
     try:
-        if memory_bank is None or not memory_bank.is_fitted:
-            return jsonify({'error': 'No memory bank to save'}), 400
-        
-        data = request.json
-        filename = data.get('filename', 'memory_bank')
-        
-        # Ensure .pkl extension
-        if not filename.endswith('.pkl'):
-            filename += '.pkl'
-        
-        filepath = MEMORY_BANK_DIR / filename
-        memory_bank.save(str(filepath))
-        
         return jsonify({
             'success': True,
-            'num_features': memory_bank.feature_count()
+            'message': 'Memory bank state is managed by the gateway.'
         })
-    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/load_memory_bank', methods=['POST'])
 def load_memory_bank():
-    """
-    Load memory bank from disk.
-    
-    Expected JSON:
-        - filename: Name of the memory bank file
-    """
+    """Proxy load instruction (Gateway loads it automatically during infer)."""
     try:
-        initialize_models()
-        
-        data = request.json
-        filename = data.get('filename')
-        
-        if not filename:
-            return jsonify({'error': 'No filename provided'}), 400
-        
-        filepath = MEMORY_BANK_DIR / filename
-        
-        if not filepath.exists():
-            return jsonify({'error': f'File not found: {filename}'}), 404
-        
-        memory_bank.load(str(filepath))
-        
         return jsonify({
             'success': True,
-            'num_features': memory_bank.feature_count(),
-            'feature_dim': memory_bank.feature_dim
+            'message': 'Memory bank is automatically loaded by the gateway for the given session.'
         })
-    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -582,11 +473,10 @@ def load_memory_bank():
 def list_memory_banks():
     """List all saved memory banks."""
     try:
-        banks = [f.name for f in MEMORY_BANK_DIR.glob('*.pkl')]
-        return jsonify({
-            'memory_banks': banks
-        })
-    
+        if MEMORY_BANK_DIR.exists():
+            banks = [d.name for d in MEMORY_BANK_DIR.iterdir() if d.is_dir() and d.name.startswith("session_")]
+            return jsonify({'banks': banks})
+        return jsonify({'banks': []})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -603,18 +493,6 @@ def detect_anomalies():
         - session_id: Unique session ID for this detection run
     """
     try:
-        if memory_bank is None or not memory_bank.is_fitted:
-            return jsonify({'error': 'No memory bank loaded'}), 400
-        
-        initialize_models()
-        
-        # Create anomaly detector
-        global anomaly_detector
-        anomaly_detector = AnomalyDetector(
-            memory_bank=memory_bank,
-            feature_extractor=feature_extractor
-        )
-        
         # Get session ID
         session_id = request.form.get('session_id', 'default_session')
         
@@ -673,58 +551,56 @@ def detect_anomalies():
         else:
             return jsonify({'error': 'No files provided'}), 400
         
-        # Preprocess images before detection
-        for item in temp_dir.rglob('*'):
-            if item.is_file() and item.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
-                image_bgr = cv2.imread(str(item))
-                if image_bgr is not None:
-                    if preprocess_config.get('mode') == 'thresholding':
-                        _, masked_img, _ = apply_threshold_mask(
-                            image_bgr,
-                            channel=preprocess_config.get('channel', 'gray'),
-                            thresh_min=preprocess_config.get('thresh_min', 30),
-                            thresh_max=preprocess_config.get('thresh_max', 220),
-                            morph_open=preprocess_config.get('morph_open', 3),
-                            morph_close=preprocess_config.get('morph_close', 5)
-                        )
-                        cv2.imwrite(str(item), masked_img)
-                    elif preprocess_config.get('mode') == 'average' and averaged_bg_reference is not None:
-                        _, masked_img = apply_bg_mask(
-                            image_bgr,
-                            averaged_bg_reference,
-                            diff_threshold=preprocess_config.get('diff_threshold', 85),
-                            morph_open=preprocess_config.get('morph_open', 5),
-                            morph_close=preprocess_config.get('morph_close', 7),
-                            fill_holes=preprocess_config.get('fill_holes', True),
-                            min_component_ratio=preprocess_config.get('min_component_ratio', 0.1)
-                        )
-                        cv2.imwrite(str(item), masked_img)
-
         anomaly_threshold = float(request.form.get('threshold', 0.5))
         heatmap_alpha = float(request.form.get('alpha', 0.5))
 
-        # Process images
-        results_dict = anomaly_detector.detect_from_folder(
-            str(temp_dir),
-            str(session_dir),
-            alpha=heatmap_alpha
-        )
-        
-        # Convert results to list for frontend
+        # Combine global config to construct session config
+        config_payload = {
+            "phase1": preprocess_config,
+            "phase2": spatial_config
+        }
+        # Step 1: Sync Session
+        requests.post(f"{GATEWAY_URL}/sync_session", json={
+            "session_name": current_session_name,
+            "config": config_payload
+        })
+
+        # Process images via Gateway
         results_list = []
         max_score = 0
-        for fname, info in results_dict.items():
-            score = info.get('anomaly_score')
-            if score is None: score = 0
-            
-            if score > max_score:
-                max_score = score
-            results_list.append({
-                'filename': fname,
-                'anomaly_score': score,
-                'is_anomaly': score > anomaly_threshold,
-                'processed': info.get('processed', False)
-            })
+        
+        import base64
+        for item in temp_dir.rglob('*'):
+            if item.is_file() and item.suffix.lower() in ['.jpg', '.jpeg', '.png', '.bmp']:
+                 with open(item, "rb") as f:
+                     b64_str = "data:image/jpeg;base64," + base64.b64encode(f.read()).decode('utf-8')
+                     
+                 resp = requests.post(f"{GATEWAY_URL}/infer", json={
+                     "session_name": current_session_name,
+                     "image_b64": b64_str,
+                     "phase": 4
+                 })
+                 
+                 if resp.status_code == 200:
+                     info = resp.json()
+                     score = info.get("score", 0.0)
+                     
+                     if score > max_score:
+                         max_score = score
+                         
+                     results_list.append({
+                         'filename': item.name,
+                         'anomaly_score': score,
+                         'is_anomaly': score > anomaly_threshold,
+                         'processed': True
+                     })
+                     
+                     # Save overlay map locally 
+                     overlay_b64 = info.get("stacked_b64") or info.get("heatmap_b64")
+                     if overlay_b64:
+                         b64_data = overlay_b64.split(',')[1] if ',' in overlay_b64 else overlay_b64
+                         with open(session_dir / f"torch_res_{item.name}", "wb") as fh:
+                             fh.write(base64.b64decode(b64_data))
 
         # Prepare response
         response_data = {
@@ -834,13 +710,11 @@ def configure_spatial():
     """Receive and store the active spatial partitioning configuration."""
     global spatial_config
     try:
-        data = request.json
+        data = request.get_json(force=True, silent=True)
         if not data:
-            return jsonify({'error': 'No config provided'}), 400
+            return jsonify({'error': 'No json config provided or invalid json.'}), 400
         
-        if not data.get('engine'):
-            return jsonify({'error': 'Memory Bank creation requires a TensorRT engine. Please select or export one in Stage 2.'}), 400
-            
+
         spatial_config.update(data)
         
         # Save to persistent JSON

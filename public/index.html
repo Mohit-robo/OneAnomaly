@@ -347,25 +347,6 @@
                         </div>
                     </div>
 
-                    <!-- Region Summary & Export -->
-                    <div class="divider"></div>
-                    <div class="input-row">
-                        <div class="input-group">
-                            <label for="existing-engine-select">Load Existing TensorRT Engine</label>
-                            <select id="existing-engine-select" class="select-input">
-                                <option value="">-- No engine selected --</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="input-row" style="margin-top: 15px;">
-                        <div class="input-group">
-                            <label for="batch-size-trt">Model Batch Size (for Export)</label>
-                            <input type="number" id="batch-size-trt" class="input-field" value="1" min="1" max="128">
-                        </div>
-                        <div class="input-group" style="display: flex; align-items: flex-end; gap: 10px;">
-                            <button class="btn btn-secondary" id="export-trt-btn">Export TRT Engine</button>
-                        </div>
-                    </div>
                 </div>
                 <div class="card-footer">
                     <button class="btn btn-primary" id="save-spatial-btn">Save Stage 2 & Continue</button>

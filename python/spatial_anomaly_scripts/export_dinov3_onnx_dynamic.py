@@ -96,7 +96,8 @@ def export_dinov3_to_onnx(model_name, repo_path, weights_path, output_path, reso
     ps = wrapper.patch_size
     h = w = (resolution // ps) * ps
     
-    export_batch = 1 if dynamic_batch else batch_size
+    # Use batch size 2 during tracing to help PyTorch recognize the batch dimension is dynamic!
+    export_batch = 2 if dynamic_batch else batch_size
     print(f"Creating dummy input: ({export_batch}, {3}, {h}, {w})")
     dummy_input = torch.randn(export_batch, 3, h, w, dtype=torch.float32)
     
@@ -212,7 +213,7 @@ def main():
     args = parser.parse_args()
     
     # Determine if dynamic batch should be used
-    use_dynamic = args.dynamic_batch and not args.fixed_batch
+    use_dynamic = args.dynamic_batch
     
     # Auto-generate output path if not provided
     if args.output_path is None:

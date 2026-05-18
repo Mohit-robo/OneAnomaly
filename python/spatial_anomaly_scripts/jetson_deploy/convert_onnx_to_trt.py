@@ -9,7 +9,7 @@ import os
 # TensorRT logger
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
-def build_engine_from_onnx(onnx_path, engine_path, fp16_mode=True, workspace_size=4):
+def build_engine_from_onnx(onnx_path, engine_path, fp16_mode=True, workspace_size=4, args=None):
     """
     Build TensorRT engine from ONNX model
     
@@ -57,6 +57,31 @@ def build_engine_from_onnx(onnx_path, engine_path, fp16_mode=True, workspace_siz
     config = builder.create_builder_config()
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_size * (1 << 30))  # GB to bytes
     
+    if hasattr(args, 'dynamic') and args.dynamic:
+        print("\nConfiguring Dynamic Batching Optimization Profile...")
+        profile = builder.create_optimization_profile()
+        input_tensor = network.get_input(0)
+        input_name = input_tensor.name
+        
+        # We assume the input shape from ONNX is e.g. [-1, 3, H, W]
+        # We replace the -1 (batch dimension) with min, opt, max
+        base_shape = list(input_tensor.shape)
+        if base_shape[0] == -1:
+            h, w = base_shape[2], base_shape[3]
+            profile.set_shape(
+                input_name, 
+                (getattr(args, 'min_batch', 1), 3, h, w), # Min
+                (getattr(args, 'opt_batch', 4), 3, h, w), # Opt
+                (getattr(args, 'max_batch', 8), 3, h, w)  # Max
+            )
+            config.add_optimization_profile(profile)
+            print(f"  Profile set: {input_name}")
+            print(f"    Min: {(getattr(args, 'min_batch', 1), 3, h, w)}")
+            print(f"    Opt: {(getattr(args, 'opt_batch', 4), 3, h, w)}")
+            print(f"    Max: {(getattr(args, 'max_batch', 8), 3, h, w)}")
+        else:
+            print("⚠ Passed --dynamic but input tensor does not have dynamic batch dimension ([0] != -1)")
+    
     if fp16_mode and builder.platform_has_fast_fp16:
         print("\n✓ Enabling FP16 precision")
         config.set_flag(trt.BuilderFlag.FP16)
@@ -89,10 +114,15 @@ def main():
                         help="Path to ONNX model")
     parser.add_argument("--engine_path", type=str, default=None,
                         help="Output TensorRT engine path (default: auto-generated)")
-    parser.add_argument("--fp16", action="store_true", default=True,
-                        help="Use FP16 precision (default: True)")
+    parser.add_argument("--fp16", action="store_true", default=False,
+                        help="Use FP16 precision (default: False)")
     parser.add_argument("--workspace", type=int, default=4,
                         help="Max workspace size in GB (default: 4)")
+    
+    parser.add_argument("--dynamic", action="store_true", help="Enable dynamic batching optimization profile")
+    parser.add_argument("--min_batch", type=int, default=1, help="Minimum batch size")
+    parser.add_argument("--opt_batch", type=int, default=4, help="Optimal batch size")
+    parser.add_argument("--max_batch", type=int, default=8, help="Maximum batch size")
     
     args = parser.parse_args()
     
@@ -111,7 +141,8 @@ def main():
         onnx_path=args.onnx_path,
         engine_path=args.engine_path,
         fp16_mode=args.fp16,
-        workspace_size=args.workspace
+        workspace_size=args.workspace,
+        args=args
     )
 
 if __name__ == "__main__":

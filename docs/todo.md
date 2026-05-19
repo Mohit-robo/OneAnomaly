@@ -84,7 +84,37 @@
 
 ---
 
+## Stage 6: Production Deployment (Triton + GCP)
+
+**Reference** → `docs/plan_triton_architecture.md` / `docs/triton_implementation_plan.md`
+
+### ✅ Done
+- [x] **Infrastructure Setup Design** (Tailscale & GCP layout planned in docs)
+- [x] **Triton Local Server**
+  - [x] Reconfigure DINOv3 TRT Export to use dynamic batch profiles `[Min:1, Opt:4, Max:8]`
+  - [x] Build `triton_models/dinov3_encoder` repo structure + `config.pbtxt`
+- [x] **Local Inference Gateway**
+  - [x] Build robust `gateway/main.py`-based API using Uvicorn
+  - [x] Refactor PyTorch OpenCV pipelines (Crop, Heatmap) over to gateway
+  - [x] Move dynamic FAISS index memory bank creation over to gateway
+  - [x] Bind gateway endpoints (`/infer`, `/build_memory_bank`, `/sync_session`)
+- [x] **Cloud API Proxy**
+  - [x] Strip out ML imports (PyTorch, TensorRT, FAISS, cv2 constraints) from existing `api_server.py`
+  - [x] Refactor Web API calls to Proxy Image Arrays externally through gateway
+  - [x] Unwanted scratch scripts removed
+- [x] **Phase 5 Frontend Polish**
+  - [x] Paged UI filtering and pagination works seamlessly
+  - [x] Single-click Unified Downloads logic extracts `stacked_b64` (original + overlay)
+
+### 🔜 Pending Next (Cloud Prep & Security)
+- [ ] Set up Tailscale VPN on local IPC network
+- [ ] Provision GCP server and set up Tailscale proxy
+- [ ] Set up Google Cloud Storage bucket
+- [ ] Bind `/session/` interactions to Read/Write JSON configs securely against Google Cloud Storage
+- [ ] Guarantee Cloud Run utilizes purely CPU while inference achieves 100ms processing loopback target
+
+---
+
 ## Known Limitations / Tech Debt
-- [ ] Canvas-based rendering was removed; region bounding boxes are not yet drawn on the right panel (they were drawn in the old canvas logic)
 - [ ] Engine must be manually selected — no auto-detection of the most recent export
 - [ ] Memory bank list not auto-refreshed after a new bank is saved (requires page reload or re-click)

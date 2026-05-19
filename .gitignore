@@ -19,6 +19,7 @@ python/results/*
 dataset/
 anomaly_app/
 
+triton_models/
 # Logs
 *.log
 

@@ -501,8 +501,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const ctx = regionCanvas.getContext('2d');
     const clearRegionsBtn = document.getElementById('clear-regions-btn');
     const saveSpatialBtn = document.getElementById('save-spatial-btn');
-    const exportTrtBtn = document.getElementById('export-trt-btn');
-    const engineSelect = document.getElementById('existing-engine-select');
 
     spatialRadios.forEach(r => {
         r.addEventListener('change', (e) => {
@@ -770,36 +768,6 @@ document.addEventListener('DOMContentLoaded', () => {
         })();
     }
 
-    document.getElementById('export-trt-btn').addEventListener('click', async () => {
-        const bs = parseInt(document.getElementById('batch-size-trt').value);
-        const spatialRadios = document.querySelector('input[name="spatial_mode"]:checked');
-        const spatialMode = spatialRadios ? spatialRadios.value : 'whole';
-        
-        const preProcMode = document.querySelector('input[name="preprocess_mode"]:checked').value;
-        let preProcInfo = "";
-        if (preProcMode === 'thresholding') {
-            const min = document.getElementById('thresh-min').value;
-            const max = document.getElementById('thresh-max').value;
-            preProcInfo = `int${min}-${max}`;
-        } else {
-            const diff = document.getElementById('avg-diff-thresh').value;
-            preProcInfo = `avgD${diff}`;
-        }
-
-        if (spatialMode === 'manual' && manualRegions.length === 0) {
-            showToast('Region Missing', 'Please draw at least one region or select another mode.', 'error');
-            return;
-        }
-
-        runStreamingTask('Model Export', '/api/export_trt', {
-            batch_size: bs,
-            spatial_mode: spatialMode,
-            pre_proc: preProcInfo
-        }, () => {
-            if (typeof loadExistingEngines === 'function') loadExistingEngines();
-        });
-    });
-
     document.getElementById('overlay-close-btn').addEventListener('click', () => {
         overlay.style.display = 'none';
     });
@@ -808,35 +776,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.updateSpatialPreview = function() {
         drawRegions();
     };
-
-    async function loadExistingEngines() {
-        console.log("Loading engines from...", `${API_BASE}/api/list_engines`);
-        try {
-            const response = await fetch(`${API_BASE}/api/list_engines`);
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            const data = await response.json();
-            console.log("Received engines:", data.engines);
-            
-            if (!engineSelect) {
-                console.error("engineSelect element not found!");
-                return;
-            }
-            
-            engineSelect.innerHTML = '<option value="">-- No engine selected --</option>';
-            if (data.engines && data.engines.length > 0) {
-                data.engines.forEach(eng => {
-                    const opt = document.createElement('option');
-                    opt.value = eng;
-                    opt.innerText = eng;
-                    engineSelect.appendChild(opt);
-                });
-            } else {
-                console.warn("No engines found on server.");
-            }
-        } catch (e) {
-            console.error("Failed to load engines:", e);
-        }
-    }
 
     async function loadExistingBanks() {
         try {
@@ -859,26 +798,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    loadExistingEngines();
     loadExistingBanks();
 
     saveSpatialBtn.addEventListener('click', async () => {
         const mode = document.querySelector('input[name="spatial_mode"]:checked').value;
-        const engineSelectEl = document.getElementById('existing-engine-select');
-        const engine = engineSelectEl ? engineSelectEl.value : "";
         
-        if (!engine || engine === "") {
-            showToast('Engine Missing', 'Please select or generate a TensorRT engine before continuing.', 'error');
-            if (engineSelectEl) {
-                engineSelectEl.style.borderColor = '#ef4444';
-                setTimeout(() => engineSelectEl.style.borderColor = '', 2000);
-            }
-            return;
-        }
-
         const config = {
             spatial_mode: mode,
-            engine: engine,
             regions: (mode === 'manual') ? manualRegions : (mode === 'grid' ? [] : []), // coords will be calculated by backend for grid
             grid_ratios: {
                 x: parseInt(document.getElementById('grid-x-ratio').value),
@@ -1079,8 +1005,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const config = getCurrentConfig();
         const spatialMode = (document.querySelector('input[name="spatial_mode"]:checked') || {}).value || 'N/A';
-        const engineEl = document.getElementById('existing-engine-select');
-        const engine = engineEl ? (engineEl.options[engineEl.selectedIndex] || {}).text : 'None';
         const bankName = loadedBankName || document.getElementById('memory-bank-name')?.value || 'None';
         const threshold = document.getElementById('anomaly-threshold')?.value || '0.50';
         const alpha = document.getElementById('heatmap-alpha')?.value || '0.50';
@@ -1110,7 +1034,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const spatialLabel = {grid: 'Quadrant Grid (2×2)', manual: 'Manual Regions', whole: 'Whole Image'};
         const s2rows = row('Spatial Mode', spatialLabel[spatialMode] || spatialMode)
-            + row('TRT Engine', engine)
             + (spatialMode === 'manual' ? row('Region Count', manualRegions.length + ' boxes') : '');
 
         const s3rows = row('Memory Bank', bankName || 'Not loaded', bankName ? '#10b981' : '#ef4444');
@@ -1171,7 +1094,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!grid) return;
 
         const totalPages = Math.max(1, Math.ceil(batchFilteredResults.length / batchPageSize));
-        batchCurrentPage = Math.min(batchCurrentPage, totalPages);
+        batchCurrentPage = Math.max(1, Math.min(batchCurrentPage, totalPages));
         const start = (batchCurrentPage - 1) * batchPageSize;
         const page = batchFilteredResults.slice(start, start + batchPageSize);
 
@@ -1401,7 +1324,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // 3. Session config JSON
             const config = getCurrentConfig();
             const spatialMode = (document.querySelector('input[name="spatial_mode"]:checked') || {}).value || '';
-            const engineEl = document.getElementById('existing-engine-select');
             const sessionPayload = {
                 timestamp: new Date().toISOString(),
                 session_id: batchSessionId,

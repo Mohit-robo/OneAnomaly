@@ -4,6 +4,16 @@ All notable changes to the **OneAnomaly** / **Anomaly Detection App** project.
 
 ---
 
+
+## [v1.6.0] - 2026-05-18
+
+### 🚀 Production Migration: Triton Distributed Architecture (Stage 6)
+- **Triton Local Server Orchestration**: The core DINOv3 inference engine has been securely exported to TensorRT utilizing dynamic batching profiles (`[Min:1, Opt:4, Max:8]`). It runs via NVIDIA Triton (`nvcr.io/nvidia/tritonserver:24.08-py3`). Output dimensions corrected to exact spatial sizes `[196, 768]`.
+- **FastAPI Edge Gateway**: A dedicated worker (`gateway/main.py`) acts under Uvicorn routing the loopback connection natively. The gateway now handles FAISS memory bank generation, raw OpenCV tiling arrays, and score extraction asynchronously to reduce computational payload over the outer edge limits.
+- **Cloud Run Proxy (API Server Refactoring)**: Stripped the bulky ML logic (`PyTorch`, `TensorRT`, `FAISS`) directly away from the `api_server.py`. The backend codebase is now exceptionally clean, routing all inference (`/detect_anomalies`), bank creation (`/build_memory_bank`), and session config updates over purely HTTP REST payloads containing `base64` strings encoded sequentially.
+- **Removed Unwanted Scratch Scripts**: Extraneous ML testing logic (`feature_extractor.py`, `dinov3_faiss.py`, `test_dinov3_pytorch.py`, `simple_inference_onnx.py`, `simple_inference_onnx_spatial.py`) removed fully optimizing for deployment readiness.
+- **Phase 5 Feature Complete: Stacked Visualization**: When initiating a JSON / CSV / Image batch export on the frontend, the UI triggers a side-by-side array composition handled completely server-side via `np.hstack([image_bgr, overlay])` ensuring the user has a single cohesive `.zip` folder.
+
 ## [v1.5.0] - 2026-05-17
 
 ### 🚀 Phase 5: Confirmation & Final Inference (Batch)

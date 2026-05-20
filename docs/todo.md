@@ -93,11 +93,14 @@
 - [x] **Triton Local Server**
   - [x] Reconfigure DINOv3 TRT Export to use dynamic batch profiles `[Min:1, Opt:4, Max:8]`
   - [x] Build `triton_models/dinov3_encoder` repo structure + `config.pbtxt`
+  - [x] Deploy high-fidelity dynamic ONNX Runtime model (`dinov3_onnx`) to resolve degenerate TRT features compile bug
 - [x] **Local Inference Gateway**
   - [x] Build robust `gateway/main.py`-based API using Uvicorn
   - [x] Refactor PyTorch OpenCV pipelines (Crop, Heatmap) over to gateway
   - [x] Move dynamic FAISS index memory bank creation over to gateway
   - [x] Bind gateway endpoints (`/infer`, `/build_memory_bank`, `/sync_session`)
+  - [x] Fix `IsADirectoryError` when serializing standard single-region memory bank to file path (`bank.pkl`)
+  - [x] Implement in-memory `MemoryBank` caching with `/sync_session` auto-invalidation to bypass FAISS rebuilding on every inference
 - [x] **Cloud API Proxy**
   - [x] Strip out ML imports (PyTorch, TensorRT, FAISS, cv2 constraints) from existing `api_server.py`
   - [x] Refactor Web API calls to Proxy Image Arrays externally through gateway
@@ -105,6 +108,7 @@
 - [x] **Phase 5 Frontend Polish**
   - [x] Paged UI filtering and pagination works seamlessly
   - [x] Single-click Unified Downloads logic extracts `stacked_b64` (original + overlay)
+
 
 ### 🔜 Pending Next (Cloud Prep & Security)
 - [ ] Set up Tailscale VPN on local IPC network

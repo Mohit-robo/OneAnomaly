@@ -11,13 +11,15 @@ A production-ready **web application** for detecting surface anomalies in indust
 | Layer | Technology |
 |---|---|
 | **Frontend** | Vanilla HTML5 / CSS3 / JavaScript |
-| **Backend (ML API)** | Python / Flask / Flask-CORS |
-| **Feature Extraction** | DINOv3 ViT-S/16 (PyTorch → TensorRT) |
+| **Backend (Web API)** | Python / Flask / Flask-CORS |
+| **Inference Gateway** | FastAPI / Uvicorn (In-Memory MemoryBank Caching) |
+| **Feature Extraction** | DINOv3 ViT-S/16 (Triton Server with ONNX Runtime backend) |
 | **Similarity Search** | FAISS (GPU-accelerated) |
 | **Image Processing** | OpenCV, scipy, matplotlib |
-| **Engine Files** | TensorRT `.engine` (ONNX intermediate) |
+| **Model Files** | ONNX Dynamic Batching Model (`dinov3_onnx`) |
 
-> **Note**: The app is served entirely by the Flask server on port **5000**. There is no separate Node.js proxy — `server.js` is not used in production.
+> **Note**: In production deployment, Triton handles model inference via the ONNX Runtime backend to maximize stability and feature representational accuracy, proxied by a local FastAPI Gateway which handles memory bank matching and caching.
+
 
 ---
 

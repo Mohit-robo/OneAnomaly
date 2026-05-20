@@ -69,9 +69,11 @@ class AnomalyDetector:
             # 1. Crop image into regions
             crops = []
             for reg in regions:
-                x, y, w, h = reg
+                if isinstance(reg, dict):
+                    x, y, w, h = int(reg['x']), int(reg['y']), int(reg['w']), int(reg['h'])
+                else:
+                    x, y, w, h = int(reg[0]), int(reg[1]), int(reg[2]), int(reg[3])
                 crop = image[y:y+h, x:x+w]
-                # Ensure crop has content (cv2 resize might be needed if extremely small, but usually 224x224)
                 crops.append(crop)
             
             # 2. Extract features in batch (returns a 2D 588x768 array if 3 regions x 196 patches)
@@ -98,7 +100,11 @@ class AnomalyDetector:
             full_score_map = np.zeros(image.shape[:2], dtype=np.float32)
             
             for i, reg in enumerate(regions):
-                x, y, w, h = reg
+                if isinstance(reg, dict):
+                    x, y, w, h = int(reg['x']), int(reg['y']), int(reg['w']), int(reg['h'])
+                else:
+                    x, y, w, h = int(reg[0]), int(reg[1]), int(reg[2]), int(reg[3])
+
                 if w <= 0 or h <= 0: continue
                 
                 reg_scores = patch_scores[i].reshape(h_grid, w_grid)
@@ -116,9 +122,11 @@ class AnomalyDetector:
                 except Exception as e:
                     print(f"Warning: Failed to resize/stitch region {i}: {e}")
                 
-            score_map = full_score_map
-            anomaly_score = float(patch_scores.max())
+            # image_score = mean_top_1_percent(patch_scores)
+            n_top = max(1, int(patch_scores.size * 0.01))
+            anomaly_score = float(np.sort(patch_scores.flatten())[-n_top:].mean())
             
+            score_map = full_score_map
         else:
             # NON-SPATIAL MODE (Standard)
             features, patch_grid = self.feature_extractor.extract_from_image(image)
@@ -130,7 +138,10 @@ class AnomalyDetector:
                 similarities = distances.mean(axis=1)
                 
             patch_scores = 1.0 - similarities
-            anomaly_score = float(patch_scores.max())
+            
+            # image_score = mean_top_1_percent(patch_scores)
+            n_top = max(1, int(patch_scores.size * 0.01))
+            anomaly_score = float(np.sort(patch_scores.flatten())[-n_top:].mean())
             
             h, w = patch_grid
             score_map = patch_scores.reshape(h, w)
@@ -140,8 +151,16 @@ class AnomalyDetector:
         if self.gaussian_sigma > 0:
             score_map = gaussian_filter(score_map, sigma=self.gaussian_sigma)
         
-        # Normalize
-        score_map = (score_map - score_map.min()) / (score_map.max() - score_map.min() + 1e-8)
+        # Robust Normalization for Heatmap
+        # We want to stretch the values between a 'normal' baseline and an 'anomaly' ceiling.
+        # This prevents normal images from lighting up due to min-max scaling of the whole map.
+        v_min = score_map.min()
+        v_max = score_map.max()
+        
+        # We normalize such that scores above 0.3 start becoming significant.
+        # This matches the threshold usually used for Cosine Distances with DINO.
+        norm_map = np.clip((score_map - 0.0) / (max(v_max, 0.4) - 0.0), 0.0, 1.0)
+        score_map = norm_map
         
         # Create overlay
         overlay = self._create_overlay(image, score_map, alpha=alpha)

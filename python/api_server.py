@@ -449,9 +449,27 @@ def extract_features():
 def save_memory_bank():
     """Proxy save instruction (Actually gateway saves it automatically during build)."""
     try:
+        data = request.json
+        bank_name = data.get('filename')
+        if not bank_name:
+            return jsonify({'error': 'Filename is required'}), 400
+            
+        src = MEMORY_BANK_DIR / current_session_name
+        dst = MEMORY_BANK_DIR / bank_name
+        
+        if not src.exists():
+            return jsonify({'error': f'Source session {current_session_name} not found. Build memory bank first.'}), 404
+            
+        if dst.exists():
+            import shutil
+            shutil.rmtree(dst)
+            
+        import shutil
+        shutil.copytree(src, dst)
+        
         return jsonify({
             'success': True,
-            'message': 'Memory bank state is managed by the gateway.'
+            'message': f'Memory bank saved as {bank_name}'
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -473,10 +491,14 @@ def load_memory_bank():
 def list_memory_banks():
     """List all saved memory banks."""
     try:
+        banks = []
         if MEMORY_BANK_DIR.exists():
-            banks = [d.name for d in MEMORY_BANK_DIR.iterdir() if d.is_dir() and d.name.startswith("session_")]
-            return jsonify({'banks': banks})
-        return jsonify({'banks': []})
+            # Accept any subdirectory that contains a metadata.pkl (spatial) or bank_0.pkl
+            for d in sorted(MEMORY_BANK_DIR.iterdir()):
+                if d.is_dir() and ((d / 'metadata.pkl').exists() or (d / 'bank_0.pkl').exists()):
+                    banks.append(d.name)
+        # Return both keys for frontend compatibility
+        return jsonify({'banks': banks, 'memory_banks': banks})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -598,9 +620,21 @@ def detect_anomalies():
                      # Save overlay map locally 
                      overlay_b64 = info.get("stacked_b64") or info.get("heatmap_b64")
                      if overlay_b64:
+                         # 1. Save original as _source.png
+                         import shutil
+                         stem = item.stem
+                         shutil.copy(item, session_dir / f"{stem}_source.png")
+                         
+                         # 2. Save overlay as _overlay.png and torch_res_ variant
                          b64_data = overlay_b64.split(',')[1] if ',' in overlay_b64 else overlay_b64
-                         with open(session_dir / f"torch_res_{item.name}", "wb") as fh:
-                             fh.write(base64.b64decode(b64_data))
+                         overlay_data = base64.b64decode(b64_data)
+                         
+                         with open(session_dir / f"{stem}_overlay.png", "wb") as fh:
+                             fh.write(overlay_data)
+                             
+                         # Also save for lightbox (legacy frontends might expect this)
+                         with open(session_dir / f"torch_res_{stem}.png", "wb") as fh:
+                             fh.write(overlay_data)
 
         # Prepare response
         response_data = {

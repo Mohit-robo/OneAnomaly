@@ -16,9 +16,9 @@ def crop_regions(image_bgr: np.ndarray, regions: list) -> list:
     
     for reg in regions:
         if isinstance(reg, dict):
-            x, y, w, h = reg['x'], reg['y'], reg['width'], reg['height']
+            x, y, w, h = int(reg['x']), int(reg['y']), int(reg['w']), int(reg['h'])
         else:
-            x, y, w, h = reg
+            x, y, w, h = int(reg[0]), int(reg[1]), int(reg[2]), int(reg[3])
             
         # Ensure bounds
         x = max(0, min(x, w_img - 1))
@@ -46,9 +46,9 @@ def build_global_score_map(patch_scores: np.ndarray, regions: list, image_shape:
     
     for i, reg in enumerate(regions):
         if isinstance(reg, dict):
-            x, y, w, h = reg['x'], reg['y'], reg['width'], reg['height']
+            x, y, w, h = int(reg['x']), int(reg['y']), int(reg['w']), int(reg['h'])
         else:
-            x, y, w, h = reg
+            x, y, w, h = int(reg[0]), int(reg[1]), int(reg[2]), int(reg[3])
             
         if w <= 0 or h <= 0: continue
         

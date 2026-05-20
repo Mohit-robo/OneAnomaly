@@ -30,6 +30,8 @@ except ImportError:
 
 app = FastAPI(title="OneAnomaly Inference Gateway")
 
+triton_extractor = TritonFeatureExtractor(url="localhost:8001", model_name="dinov3_onnx")
+
 class SessionConfig(BaseModel):
     session_name: str
     config: dict
@@ -41,6 +43,8 @@ class InferRequest(BaseModel):
 
 # In-memory session cache
 session_cache: Dict[str, dict] = {}
+# In-memory memory bank cache to prevent reloading on every inference request
+memory_bank_cache: Dict[str, Any] = {}
 # Triton client connection
 triton_client = None
 
@@ -70,6 +74,10 @@ def health_check():
 @app.post("/sync_session")
 def sync_session(payload: SessionConfig):
     session_cache[payload.session_name] = payload.config
+    # Invalidate cached memory bank when session is re-synced to prevent stale configuration
+    if payload.session_name in memory_bank_cache:
+        del memory_bank_cache[payload.session_name]
+        print(f"Invalidated cached memory bank for session: {payload.session_name}")
     print(f"Synced session config: {payload.session_name}")
     return {"saved": True, "session_name": payload.session_name}
 
@@ -109,16 +117,15 @@ async def infer(payload: InferRequest):
             "heatmap_b64": img_to_b64(masked_img),
             "inference_ms": (time.time() - start_time) * 1000
         }
-        
+    
     # 4. Phase 2: Spatial Tiling
     regions = config.get("phase2", {}).get("regions", [])
-    crops = crop_regions(masked_img, regions)
-    
+
     if payload.phase == 2:
         # Return preview of spatial regions (draw boxes on image)
         preview_img = masked_img.copy()
         for r in regions:
-            x, y, w, h = r['x'], r['y'], r['w'], r['h']
+            x, y, w, h = int(r['x']), int(r['y']), int(r['w']), int(r['h'])
             cv2.rectangle(preview_img, (x, y), (x+w, y+h), (0, 255, 0), 2)
         return {
             "ok": True,
@@ -127,28 +134,38 @@ async def infer(payload: InferRequest):
         }
         
     # 5. Phase 4: Anomaly Detection
-    session_dir = Path("memory_banks") / payload.session_name
+    session_dir = BASE_DIR / "memory_banks" / payload.session_name
     if not session_dir.exists():
         raise HTTPException(status_code=400, detail="Memory bank not found on gateway for this session. Sync/Build first.")
         
-    try:
-        if len(regions) > 1:
-            mb = SpatialMemoryBank.load(str(session_dir))
-        else:
-            mb = MemoryBank.load(str(session_dir))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load memory bank: {e}")
+    mb = memory_bank_cache.get(payload.session_name)
+    if mb is None:
+        try:
+            if len(regions) > 1:
+                mb = SpatialMemoryBank.load(str(session_dir))
+            else:
+                mb = MemoryBank(feature_dim=768)
+                mb.load(str(session_dir / "bank.pkl"))
+            memory_bank_cache[payload.session_name] = mb
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load memory bank: {e}")
+    else:
+        # Debug print showing we reused the cached instance
+        print(f"Using cached memory bank for session '{payload.session_name}'")
         
-    # We use AnomalyDetector from original logic but plug in the new Triton extractor!
-    triton_extractor = TritonFeatureExtractor(url="localhost:8001", model_name="dinov3_encoder")
+    # Convert once to RGB for the feature extractor (DINO is RGB-trained)
+    masked_img_rgb = cv2.cvtColor(masked_img, cv2.COLOR_BGR2RGB)
+    
     detector = AnomalyDetector(memory_bank=mb, feature_extractor=triton_extractor, k_neighbors=3, gaussian_sigma=2.0)
     
-    score, heatmap, overlay = detector.detect_anomalies(image_bgr, return_heatmap=True, alpha=0.5, regions=regions)
+    score, heatmap, overlay_rgb = detector.detect_anomalies(masked_img_rgb, return_heatmap=True, alpha=0.5, regions=regions)
     
-    # Convert overlay and stacked to base64
-    overlay_b64 = img_to_b64(overlay)
+    # Convert overlay back to BGR for UI display and hstacking
+    overlay_bgr = cv2.cvtColor(overlay_rgb, cv2.COLOR_RGB2BGR)
+    overlay_b64 = img_to_b64(overlay_bgr)
+    
     try:
-        stacked = np.hstack([image_bgr, overlay])
+        stacked = np.hstack([image_bgr, overlay_bgr])
         stacked_b64 = img_to_b64(stacked)
     except:
         stacked_b64 = overlay_b64
@@ -181,44 +198,71 @@ async def build_memory_bank(payload: BuildMemoryBankRequest):
     else:
         mb = MemoryBank(feature_dim=768)
         
-    triton_extractor = TritonFeatureExtractor(url="localhost:8001", model_name="dinov3_encoder")
+    errors = []
+    # crops_per_region[region_idx] = list of crop images from each training image
+    crops_per_region = [[] for _ in range(len(regions) if len(regions) > 1 else 1)]
     
-    # 2. Extract features
-    all_crops = []
-    for b64 in payload.images_b64:
+    for i, b64 in enumerate(payload.images_b64):
         try:
             image_bgr = b64_to_img(b64)
+            if image_bgr is None:
+                errors.append(f"img[{i}]: cv2.imdecode returned None (bad base64)")
+                continue
             _, masked_img = apply_preprocessing(image_bgr, config.get("phase1", {}))
+            masked_img_rgb = cv2.cvtColor(masked_img, cv2.COLOR_BGR2RGB)
             if len(regions) > 1:
-                crops = crop_regions(masked_img, regions)
-                all_crops.extend(crops)
+                crops = crop_regions(masked_img_rgb, regions)
+                print(f"[build_memory_bank] img[{i}]: {len(crops)} crops from {len(regions)} regions")
+                for r_idx, crop in enumerate(crops):
+                    crops_per_region[r_idx].append(crop)
             else:
-                all_crops.append(masked_img)
-        except Exception:
+                crops_per_region[0].append(masked_img_rgb)
+        except Exception as e:
+            import traceback
+            err_msg = f"img[{i}]: {type(e).__name__}: {e}"
+            errors.append(err_msg)
+            print(f"[build_memory_bank] ERROR {err_msg}")
+            traceback.print_exc()
             continue
-            
-    if not all_crops:
-        raise HTTPException(status_code=400, detail="No valid crops extracted")
-        
-    features, _ = triton_extractor.extract_batch(all_crops)
-    
+
+    total_crops = sum(len(c) for c in crops_per_region)
+    print(f"[build_memory_bank] crops per region: {[len(c) for c in crops_per_region]}, errors: {len(errors)}")
+    if errors:
+        print(f"[build_memory_bank] error details: {errors}")
+
+    if total_crops == 0:
+        detail = f"No valid crops extracted. Errors: {'; '.join(errors[:3])}"
+        raise HTTPException(status_code=400, detail=detail)
+
+    # Extract features and add to respective banks
     if len(regions) > 1:
-        num_images = len(all_crops) // len(regions)
-        num_regions = len(regions)
-        patch_dim = features.shape[-1]
-        features_reshaped = features.reshape(num_images, num_regions, -1, patch_dim)
-        mb.add_features(features_reshaped)
+        for region_idx, region_crops in enumerate(crops_per_region):
+            if not region_crops:
+                print(f"[build_memory_bank] WARNING: No crops for region {region_idx}")
+                continue
+            print(f"[build_memory_bank] Extracting features for region {region_idx} ({len(region_crops)} crops)...")
+            features, _ = triton_extractor.extract_batch(region_crops)
+            print(f"[build_memory_bank] Region {region_idx} features shape: {features.shape}")
+            mb.banks[region_idx].add_features(features)
     else:
+        features, _ = triton_extractor.extract_batch(crops_per_region[0])
         mb.add_features(features)
         
+        
     # 3. Save Bank
-    session_dir = Path("memory_banks") / payload.session_name
+    session_dir = BASE_DIR / "memory_banks" / payload.session_name
     session_dir.mkdir(parents=True, exist_ok=True)
-    mb.save(str(session_dir))
+    if len(regions) > 1:
+        mb.save(str(session_dir))
+    else:
+        mb.save(str(session_dir / "bank.pkl"))
+        
+    # Cache the newly built memory bank immediately
+    memory_bank_cache[payload.session_name] = mb
     
     return {
         "ok": True,
-        "n_features_saved": mb.features.shape[0] if mb.features is not None else 0,
+        "n_features_saved": mb.feature_count(),
         "ms": (time.time() - start_time) * 1000
     }
 

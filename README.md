@@ -1,6 +1,6 @@
 # OneAnomaly — DINOv3 Anomaly Detection Platform
 
-A production-ready **web application** for detecting surface defects in industrial parts using Meta's **DINOv3 Vision Transformer**, **FAISS** similarity search, and **TensorRT** hardware-accelerated inference — all wrapped in a premium dark-mode interface.
+A production-ready **web application** for detecting surface defects in industrial parts using Meta's **DINOv3 Vision Transformer**, hardware-accelerated model execution via **NVIDIA Triton (ONNX Runtime)**, and a high-performance **FastAPI Gateway** with in-memory **FAISS** feature bank caching.
 
 ---
 
@@ -8,7 +8,8 @@ A production-ready **web application** for detecting surface defects in industri
 
 - **5-Stage Guided Workflow** — Preprocessing → Spatial → Memory Bank → Detection → Confirmation & Export
 - **Spatial Region Analysis** — Detect anomalies in specific zones (manual draw or auto quadrant)
-- **TensorRT Acceleration** — Export DINOv3 ONNX → TRT engine in-browser with real-time progress
+- **Triton Distributed Inference** — Decoupled dynamic feature extraction utilizing dynamic ONNX Runtime model execution
+- **High-Throughput Caching** — Gateway-level memory bank caching to eliminate disk I/O and FAISS re-indexing cycles
 - **Memory Bank Management** — Save, load, and switch between named FAISS feature banks
 - **Side-by-Side Batch Inspection** — Source image vs. JET heatmap overlay with adjustable opacity
 - **Live Parameter Inspector** — Right-side panel tracking all session config in real time
@@ -127,7 +128,8 @@ anomaly_app/
 |---|---|
 | Frontend | HTML5, CSS3, Vanilla JS |
 | API Server | Python / Flask / Flask-CORS |
-| Feature Extraction | DINOv3 ViT-S/16 (TensorRT / PyTorch fallback) |
+| Inference Gateway | FastAPI / Uvicorn (In-Memory FAISS Caching) |
+| Feature Extraction | DINOv3 ViT-S/16 (Triton Server / ONNX Runtime backend) |
 | Similarity Search | FAISS-GPU (IndexFlatIP — cosine similarity) |
 | Image Processing | OpenCV, scipy (gaussian filter) |
 | Heatmap | JET colormap via `cv2.applyColorMap` |

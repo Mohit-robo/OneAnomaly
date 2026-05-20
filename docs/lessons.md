@@ -215,3 +215,55 @@ await new Promise(r => setTimeout(r, 400));
 // Trigger URL 3...
 ```
 This spacing guarantees the browser processes each as a distinct user-initiated pseudo-action, bypassing the simultaneous-download blocker without requiring users to tweak site permission settings.
+
+---
+
+## 19 — Degenerate TensorRT Engine Features (TRT Compilation Bug)
+
+**Issue:**  
+During the deployment of the DINOv3 backbone as a TensorRT engine (`dinov3_encoder`), the model compiled successfully, but output feature vectors were degenerate (near-constant). The cosine similarity distance between a solid solid-color image and a high-frequency gradient image was `~0.003`, rendering anomaly detection completely insensitive and making anomaly scores collapse to baseline noise.
+
+**Solution used:**  
+Transitioned the Triton inference backend to the raw ONNX model using the `onnxruntime` backend (`dinov3_onnx`). The raw ONNX model preserves the full discriminative power, yielding a healthy cosine distance of `~0.124` (a **33x improvement** in feature discrimination), instantly restoring highly accurate anomaly scoring and defect segmentation.
+
+---
+
+## 20 — Spatial vs. Standard Memory Bank Serialization Paths
+
+**Issue:**  
+The Gateway's `build_memory_bank` endpoint created a session directory `<session_name>` and passed this directory path directly to `mb.save()`. 
+- `SpatialMemoryBank.save` correctly treats the path as a directory and saves files (`metadata.pkl`, `bank_0.pkl`, etc.) inside it.
+- `MemoryBank.save` (used for single entire image regions) expects the path to be a *file path* and tries to open it (`with open(filepath, 'wb') as f:`), throwing `IsADirectoryError: [Errno 21] Is a directory`.
+
+**Solution used:**  
+Updated `gateway/main.py` to inspect the region count:
+- If `len(regions) > 1` (spatial regions), it passes the directory path: `mb.save(str(session_dir))`.
+- If `len(regions) <= 1` (standard full-image), it passes the file path: `mb.save(str(session_dir / "bank.pkl"))`.
+
+---
+
+## 21 — Non-Classmethod Instance Loading Pattern
+
+**Issue:**  
+In Python, standard class methods like `SpatialMemoryBank.load(dirpath)` are `@classmethods` that return a new instance of the class. However, `MemoryBank.load(filepath)` is an *instance method* that modifies `self` in-place and does not return anything (`None`). The code originally called `mb = MemoryBank.load(path)`, which assigned `None` to `mb` and crashed during subsequent inference calls.
+
+**Solution used:**  
+Properly instantiate the `MemoryBank` instance before loading it:
+```python
+mb = MemoryBank(feature_dim=768)
+mb.load(str(session_dir / "bank.pkl"))
+```
+
+---
+
+## 22 — In-Memory Memory Bank Caching (FAISS CPU/GPU Optimization)
+
+**Issue:**  
+Every single `/infer` call reloaded the serialized memory bank from disk and rebuilt the GPU-accelerated FAISS index on the fly. For frequent user clicks or streaming, this resulted in heavy disk I/O, substantial CPU/GPU spikes, and severe latency degradation.
+
+**Solution used:**  
+Implemented a global `memory_bank_cache` in the FastAPI Gateway. 
+- Subsequent `/infer` requests query the in-memory cache directly (`Using cached memory bank for session '...'`).
+- `/sync_session` automatically invalidates the cache when spatial region configurations are modified, keeping coordinates perfectly synced.
+- `/build_memory_bank` updates the cache immediately upon successful construction.
+

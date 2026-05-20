@@ -4,6 +4,14 @@ All notable changes to the **OneAnomaly** / **Anomaly Detection App** project.
 
 ---
 
+## [v1.7.0] - 2026-05-20
+
+### 🚀 Triton ONNX Migration & Gateway Stabilization (Distributed Pipeline Core)
+- **Triton ONNX Runtime Backend (`dinov3_onnx`)**: Switched Triton from the degenerate TensorRT engine to the ONNX Runtime backend. This restored highly-discriminative, meaningful feature extraction (yielding 33x better feature distance: cosine distance `~0.124` vs. `~0.003` for the TRT engine).
+- **High-Throughput Memory Bank Caching**: Implemented a global in-memory `memory_bank_cache` in the FastAPI Gateway. This stores the FAISS GPU indexes in RAM, preventing redundant, high-latency disk I/O and FAISS rebuilding on subsequent `/infer` calls.
+- **Smart Cache Invalidation**: Integrated cache invalidation into `/sync_session` to automatically dump and refresh cached memory banks if the user modifies region boundaries or spatial configurations.
+- **Single-Region Save/Load Fixes**: Corrected the file-path serialization logic for unified, full-image standard MemoryBanks. Saving now goes to `<session_dir>/bank.pkl` (preventing `IsADirectoryError`), and loading properly instantiates `MemoryBank(feature_dim=768)` before loading in-place.
+- **Heatmap Optimization**: Tuned the anomaly colormap normalization using a dynamic scaling stretch that highlights subtle defect pixels without inflating normal background noise.
 
 ## [v1.6.0] - 2026-05-18
 

@@ -28,34 +28,41 @@ class TritonFeatureExtractor:
     def extract_from_image(self, image: np.ndarray) -> tuple:
         return self.extract_batch([image])
     
-    def extract_batch(self, images: list) -> tuple:
+    def extract_batch(self, images: list, max_triton_batch: int = 8) -> tuple:
         if not images:
             raise ValueError("Empty image sequence")
             
+        all_features = []
         batch_size = len(images)
-        tensors = [self._preprocess(img) for img in images]
-        batch_tensor = np.vstack(tensors) # Shape: (B, 3, 224, 224)
         
-        inputs = [grpcclient.InferInput('input', batch_tensor.shape, 'FP32')]
-        inputs[0].set_data_from_numpy(batch_tensor.astype(np.float32))
-        
-        outputs = [grpcclient.InferRequestedOutput('output')]
-        
-        response = self.client.infer(model_name=self.model_name, inputs=inputs, outputs=outputs)
-        
-        features = response.as_numpy('output')
-        
-        # Reshape if output is (B, N, C)
-        if len(features.shape) == 3:
-            b, n, c = features.shape
-            features = features.reshape(b*n, c)
+        # Process in chunks of max_triton_batch
+        for i in range(0, batch_size, max_triton_batch):
+            chunk = images[i:i + max_triton_batch]
+            chunk_tensors = [self._preprocess(img) for img in chunk]
+            batch_tensor = np.vstack(chunk_tensors)
             
+            inputs = [grpcclient.InferInput('input', batch_tensor.shape, 'FP32')]
+            inputs[0].set_data_from_numpy(batch_tensor.astype(np.float32))
+            outputs = [grpcclient.InferRequestedOutput('output')]
+            
+            response = self.client.infer(model_name=self.model_name, inputs=inputs, outputs=outputs)
+            chunk_features = response.as_numpy('output')
+            
+            # chunk_features shape: (B_chunk, N_patches, C_dim)
+            b, n, c = chunk_features.shape
+            chunk_features = chunk_features.reshape(b * n, c)
+            all_features.append(chunk_features)
+            
+        features = np.vstack(all_features)
+        
         # L2 Normalize
         norm = np.linalg.norm(features, axis=1, keepdims=True)
         features = features / (norm + 1e-6)
         
-        num_patches = features.shape[0] // batch_size
-        patches_per_side = int(np.sqrt(num_patches))
+        # Calculate patch grid based on total samples
+        total_patches = features.shape[0]
+        num_patches_per_image = total_patches // batch_size
+        patches_per_side = int(np.sqrt(num_patches_per_image))
         patch_grid = (patches_per_side, patches_per_side)
         
         return features, patch_grid

@@ -746,24 +746,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
+                let buffer = '';
 
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
-                    const text = decoder.decode(value);
-                    const lines = text.split('\n');
-                    lines.forEach(line => {
-                        if (!line.trim()) return;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    
+                    // Keep the last partial line in the buffer
+                    buffer = lines.pop();
+                    
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
                         try {
                             const data = JSON.parse(line);
                             updateUI(data);
                         } catch (e) {
-                            console.error('Parse error individual line', line);
+                            console.error('Parse error on streaming line:', line, e);
                         }
-                    });
+                    }
+                }
+                
+                // Process any remaining buffer content
+                if (buffer.trim()) {
+                    try {
+                        const data = JSON.parse(buffer);
+                        updateUI(data);
+                    } catch (e) {
+                        console.error('Parse error on final buffer chunk:', buffer, e);
+                    }
                 }
             } catch (error) {
+                console.error('Streaming task failed:', error);
                 updateUI({ error: error.message });
+            } finally {
+                // Ensure close button is visible if not already closed
+                document.getElementById('overlay-spinner').style.display = 'none';
+                document.getElementById('overlay-close-btn').style.display = 'inline-block';
             }
         })();
     }

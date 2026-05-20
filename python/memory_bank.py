@@ -6,7 +6,7 @@ Uses FAISS for efficient similarity search.
 
 import pickle
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 import numpy as np
 import faiss
@@ -248,20 +248,20 @@ class SpatialMemoryBank:
     
     def __init__(
         self,
-        num_regions: int = 1,
-        feature_dim: int = 384,
+        regions_coords: List[List[int]] = None,
+        feature_dim: int = 768,
         use_gpu: bool = True,
         coreset_sampling_ratio: float = 1.0
     ):
-        self.num_regions = num_regions
+        self.regions_coords = regions_coords or []
+        self.num_regions = len(self.regions_coords) if self.regions_coords else 1
         self.feature_dim = feature_dim
         self.use_gpu = use_gpu
         self.coreset_sampling_ratio = coreset_sampling_ratio
-        self.regions_coords = [] # List of [x, y, w, h]
         
         self.banks = {
             i: MemoryBank(feature_dim, use_gpu, coreset_sampling_ratio)
-            for i in range(num_regions)
+            for i in range(self.num_regions)
         }
     
     @property
@@ -316,46 +316,49 @@ class SpatialMemoryBank:
         # Stack back (num_regions, num_patches_per_region, k)
         return np.array(all_distances), np.array(all_indices)
             
-    def save(self, filepath: str):
-        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-        data = {
+    def save(self, dirpath: str):
+        dp = Path(dirpath)
+        dp.mkdir(parents=True, exist_ok=True)
+        
+        # Save metadata
+        metadata = {
             'num_regions': self.num_regions,
             'regions_coords': self.regions_coords,
             'feature_dim': self.feature_dim,
-            'coreset_sampling_ratio': self.coreset_sampling_ratio,
-            'banks_data': {}
+            'coreset_sampling_ratio': self.coreset_sampling_ratio
         }
+        with open(dp / "metadata.pkl", 'wb') as f:
+            pickle.dump(metadata, f)
+            
+        # Save individual banks
         for idx, bank in self.banks.items():
             if bank.is_fitted:
-                data['banks_data'][idx] = bank.features
+                bank.save(str(dp / f"bank_{idx}.pkl"))
                 
-        with open(filepath, 'wb') as f:
-            pickle.dump(data, f)
-            
-        print(f"SpatialMemoryBank saved to {filepath} with {self.num_regions} regions.")
+        print(f"SpatialMemoryBank saved to {dirpath} with {self.num_regions} regions.")
 
-    def load(self, filepath: str):
-        if not Path(filepath).exists():
-            raise FileNotFoundError(f"File not found: {filepath}")
+    @classmethod
+    def load(cls, dirpath: str):
+        dp = Path(dirpath)
+        if not dp.exists():
+            raise FileNotFoundError(f"Directory not found: {dirpath}")
             
-        with open(filepath, 'rb') as f:
+        with open(dp / "metadata.pkl", 'rb') as f:
             data = pickle.load(f)
             
-        self.num_regions = data.get('num_regions', 1)
-        self.regions_coords = data.get('regions_coords', [])
-        self.feature_dim = data.get('feature_dim', 384)
-        self.coreset_sampling_ratio = data.get('coreset_sampling_ratio', 1.0)
+        instance = cls(
+            regions_coords=data.get('regions_coords', []),
+            feature_dim=data.get('feature_dim', 768),
+            coreset_sampling_ratio=data.get('coreset_sampling_ratio', 1.0)
+        )
         
-        self.banks = {}
-        for i in range(self.num_regions):
-            bank = MemoryBank(self.feature_dim, self.use_gpu, self.coreset_sampling_ratio)
-            features = data.get('banks_data', {}).get(i)
-            if features is not None:
-                bank.features = features
-                bank._build_index()
-            self.banks[i] = bank
+        for i in range(instance.num_regions):
+            bank_path = dp / f"bank_{i}.pkl"
+            if bank_path.exists():
+                instance.banks[i].load(str(bank_path))
             
-        print(f"SpatialMemoryBank loaded from {filepath} with {self.num_regions} regions.")
+        print(f"SpatialMemoryBank loaded from {dirpath} with {instance.num_regions} regions.")
+        return instance
         
     def feature_count(self):
         return sum(bank.feature_count() for bank in self.banks.values())

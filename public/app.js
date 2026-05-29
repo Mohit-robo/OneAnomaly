@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let backgroundImage = null;
     let rawPreviewUrl = null;
 
-    const API_BASE = window.location.hostname ? `http://${window.location.hostname}:5000` : 'http://localhost:5000';
+    const API_BASE = window.location.origin;
     console.log("Using API_BASE:", API_BASE);
 
     // Jet Colormap for Canvas
@@ -467,7 +467,7 @@ document.addEventListener('DOMContentLoaded', () => {
         avgPreviewImg.style.opacity = '0.5';
 
         try {
-            const response = await fetch('http://localhost:5000/api/preview_mask', {
+            const response = await fetch(`${API_BASE}/api/preview_mask`, {
                 method: 'POST',
                 body: formData,
                 signal: avgAbortController.signal
@@ -546,7 +546,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             try {
-                const response = await fetch('http://localhost:5000/api/preview_mask', {
+                const response = await fetch(`${API_BASE}/api/preview_mask`, {
                     method: 'POST',
                     body: formData
                 });

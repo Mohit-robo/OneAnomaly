@@ -1,0 +1,23 @@
+# Local Edge Gateway Dependencies
+# Pinned versions for reproducible builds
+
+# Gateway web framework
+fastapi==0.103.2
+uvicorn==0.23.2
+pydantic==2.3.0
+
+# Triton inference client
+tritonclient[grpc]==2.68.0
+
+# Array / image processing
+numpy
+opencv-python-headless>=4.9.0
+
+# FAISS — GPU build for CUDA 12.x (Jetson / desktop GPU)
+faiss-gpu-cu12==1.14.1.post1
+
+# Utilities
+pandas==2.2.2
+scipy
+scikit-learn
+matplotlib

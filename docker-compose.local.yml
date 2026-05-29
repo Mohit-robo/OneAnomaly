@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  triton:
+    image: nvcr.io/nvidia/tritonserver:24.08-py3
+    container_name: triton_server
+    command: ["tritonserver", "--model-repository=/models", "--log-verbose=1"]
+    shm_size: '2g'
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+      - "8002:8002"
+    volumes:
+      - ./triton_models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.local
+    container_name: inference_gateway
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./memory_banks:/app/memory_banks
+    environment:
+      - TRITON_URL=triton:8001
+    depends_on:
+      - triton

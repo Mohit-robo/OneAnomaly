@@ -1,5 +1,6 @@
 import sys
 import os
+import shutil
 import base64
 import json
 import time
@@ -14,7 +15,10 @@ import cv2
 
 # Import local functionality
 BASE_DIR = Path(__file__).parent.parent
-sys.path.append(str(BASE_DIR / 'python'))
+GATEWAY_DIR = Path(__file__).parent
+# Ensure gateway module-level imports resolve correctly when run via 'uvicorn gateway.main:app'
+sys.path.insert(0, str(GATEWAY_DIR))   # for preprocessing, tiling, triton_extractor
+sys.path.append(str(BASE_DIR / 'python'))  # for anomaly_detector, memory_bank
 
 from preprocessing import apply_preprocessing
 from tiling import crop_regions, build_global_score_map
@@ -30,7 +34,9 @@ except ImportError:
 
 app = FastAPI(title="OneAnomaly Inference Gateway")
 
-triton_extractor = TritonFeatureExtractor(url="localhost:8001", model_name="dinov3_onnx")
+# Triton URL: use env var to allow Docker service-name routing (e.g. triton:8001)
+TRITON_URL = os.environ.get("TRITON_URL", "localhost:8001")
+triton_extractor = TritonFeatureExtractor(url=TRITON_URL, model_name="dinov3_onnx")
 
 class SessionConfig(BaseModel):
     session_name: str
@@ -52,8 +58,8 @@ triton_client = None
 async def startup_event():
     global triton_client
     try:
-        triton_client = grpcclient.InferenceServerClient(url="localhost:8001")
-        print("Connected to local Triton gRPC at localhost:8001")
+        triton_client = grpcclient.InferenceServerClient(url=TRITON_URL)
+        print(f"Connected to Triton gRPC at {TRITON_URL}")
     except Exception as e:
         print(f"Failed to connect to Triton: {e}")
 
@@ -265,6 +271,61 @@ async def build_memory_bank(payload: BuildMemoryBankRequest):
         "n_features_saved": mb.feature_count(),
         "ms": (time.time() - start_time) * 1000
     }
+
+class RenameMemoryBankRequest(BaseModel):
+    session_name: str
+    new_name: str
+
+@app.post("/rename_memory_bank")
+def rename_memory_bank(payload: RenameMemoryBankRequest):
+    """Rename (copy) a session memory bank directory to a new name."""
+    src = BASE_DIR / "memory_banks" / payload.session_name
+    dst = BASE_DIR / "memory_banks" / payload.new_name
+    if not src.exists():
+        raise HTTPException(status_code=404, detail=f"Session '{payload.session_name}' not found. Build first.")
+    if dst.exists():
+        shutil.rmtree(str(dst))
+    shutil.copytree(str(src), str(dst))
+    # Update cache key
+    if payload.session_name in memory_bank_cache:
+        memory_bank_cache[payload.new_name] = memory_bank_cache[payload.session_name]
+    return {"ok": True, "new_name": payload.new_name}
+
+
+class LoadMemoryBankRequest(BaseModel):
+    session_name: str
+
+@app.post("/load_memory_bank")
+def load_memory_bank_endpoint(payload: LoadMemoryBankRequest):
+    """Eagerly load a memory bank into the in-memory cache."""
+    session_dir = BASE_DIR / "memory_banks" / payload.session_name
+    if not session_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Memory bank '{payload.session_name}' not found.")
+    config = session_cache.get(payload.session_name, {})
+    regions = config.get("phase2", {}).get("regions", [])
+    try:
+        if len(regions) > 1:
+            mb = SpatialMemoryBank.load(str(session_dir))
+        else:
+            mb = MemoryBank(feature_dim=768)
+            mb.load(str(session_dir / "bank.pkl"))
+        memory_bank_cache[payload.session_name] = mb
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load: {e}")
+    return {"ok": True, "session_name": payload.session_name}
+
+
+@app.get("/list_memory_banks")
+def list_memory_banks():
+    """List all saved memory bank directories."""
+    banks_dir = BASE_DIR / "memory_banks"
+    banks = []
+    if banks_dir.exists():
+        for d in sorted(banks_dir.iterdir()):
+            if d.is_dir() and ((d / 'metadata.pkl').exists() or (d / 'bank.pkl').exists() or (d / 'bank_0.pkl').exists()):
+                banks.append(d.name)
+    return {"banks": banks}
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8080)

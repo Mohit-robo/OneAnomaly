@@ -1,0 +1,33 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.cloud.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application files
+# api_server.py serves both the REST API and the static frontend
+COPY public ./public
+COPY python/api_server.py ./python/api_server.py
+# src/ contains the preprocessing utilities imported by api_server.py
+COPY python/src ./python/src
+
+# Environment
+ENV FLASK_APP=python/api_server.py
+ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8080
+# Set by App Runner / ECS at runtime:
+# ENV GATEWAY_URL=http://<tailscale-ip>:8080
+# ENV S3_BUCKET_NAME=oneanomaly-sessions
+
+EXPOSE 8080
+
+# 4 workers for concurrent request handling; cloud containers are CPU-only
+CMD ["gunicorn", "-b", "0.0.0.0:8080", "-w", "4", "--timeout", "120", "python.api_server:app"]

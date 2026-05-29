@@ -1,27 +1,53 @@
 # Dependencies
 node_modules/
 python/venv/
-python/__pycache__/
+venv/
+.venv/
+
+# Python cache
 __pycache__/
+**/__pycache__/
 *.pyc
+*.pyo
+*.pyd
 
 # System
 .DS_Store
 Thumbs.db
 
-# User Data (Do not commit large datasets or temp files)
-Data/
+# User runtime data — do NOT commit large datasets or temp files
 uploads/
 outputs/
 models/
 memory_banks/
-python/results/*
 dataset/
+assets/raw/
+
+# Triton model repository (large binaries — manage separately)
+triton_models/
+
+# Python scripts subdirectory (legacy standalone experiments)
 anomaly_app/
 
-triton_models/
 # Logs
 *.log
 
+# Environment secrets — NEVER commit these
+.env
+.env.*
+!.env.example
+
+# Docker build cache
+.dockerignore
+
+# Node (legacy, not used in production)
 package-lock.json
 package.json
+
+# pytest
+.pytest_cache/
+htmlcov/
+.coverage
+
+# AWS session tokens / credentials
+.aws/credentials

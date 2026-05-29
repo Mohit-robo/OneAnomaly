@@ -1,0 +1,45 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install cloud dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.cloud.txt
+
+      - name: Install test extras
+        run: |
+          pip install moto[s3] pytest pytest-mock
+
+      - name: Run tests
+        env:
+          # Prevent any accidental real AWS calls during CI
+          AWS_ACCESS_KEY_ID: testing
+          AWS_SECRET_ACCESS_KEY: testing
+          AWS_DEFAULT_REGION: us-east-1
+          S3_BUCKET_NAME: ""
+          GATEWAY_URL: "http://mock-gateway:8080"
+          # Run from repo root so 'from src.xxx import' resolves correctly
+          PYTHONPATH: "${{ github.workspace }}/python:${{ github.workspace }}"
+        run: |
+          pytest tests/test_api_server.py -v --tb=short

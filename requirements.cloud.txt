@@ -1,0 +1,22 @@
+# Cloud API Server Dependencies
+# Pinned versions for reproducible builds
+
+# Web framework
+flask==3.1.0
+flask-cors==4.0.0
+gunicorn==21.2.0
+
+# HTTP client (proxy calls to local gateway)
+requests==2.31.0
+
+# AWS SDK
+boto3==1.34.0
+
+# Image processing (for preview_mask + mask building in api_server)
+numpy
+opencv-python-headless>=4.9.0
+
+# Testing
+pytest==7.4.0
+pytest-mock==3.11.1
+moto[s3]==5.0.0

@@ -9,10 +9,10 @@
 ## Table of Contents
 1. [Architecture Overview](#1-architecture-overview)
 2. [Local Stack — IPC](#2-local-stack--ipc)
-3. [Cloud Stack — Google Cloud](#3-cloud-stack--google-cloud)
-4. [Connectivity Layer — Tailscale](#4-connectivity-layer--tailscale)
-5. [Triton Server — Detailed Setup](#5-triton-server--detailed-setup)
-6. [Inference Gateway — Detailed Design](#6-inference-gateway--detailed-design)
+3. [Cloud Stack — Amazon Web Services (AWS)](#3-cloud-stack-amazon-web-services-aws)
+4. [Connectivity Layer — Tailscale](#4-connectivity-layer-tailscale)
+5. [Triton Server — Detailed Setup](#5-triton-server-detailed-setup)
+6. [Inference Gateway — Detailed Design](#6-inference-gateway-detailed-design)
 7. [Request Flow Per Phase](#7-request-flow-per-phase)
 8. [Session Management](#8-session-management)
 9. [Future: Adding UNet to the Stack](#9-future-adding-unet-to-the-stack)
@@ -25,13 +25,13 @@
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                  GOOGLE CLOUD (CPU only)                 │
+│                      AWS CLOUD (CPU only)                │
 │                                                          │
 │   ┌──────────────────────────────────────────────────┐   │
-│   │              Cloud Run / GCP VM                  │   │
+│   │              AWS App Runner / EC2 Instance       │   │
 │   │                                                  │   │
 │   │   UI (Flask-served HTML/JS/CSS)                  │   │
-│   │   Session Store (JSON files / Cloud Storage)     │   │
+│   │   Session Store (JSON files / Amazon S3)         │   │
 │   │   Results Store (annotated images, CSV)          │   │
 │   │                                                  │   │
 │   │   Exposes:                                       │   │
@@ -146,24 +146,24 @@ Headroom is sufficient. Triton holds models resident — no loading between call
 
 ---
 
-## 3. Cloud Stack — Google Cloud
+## 3. Cloud Stack — Amazon Web Services (AWS)
 
 ### 3.1 Services Used
 
-| GCP Service | Purpose | Tier |
+| AWS Service | Purpose | Tier |
 |-------------|---------|------|
-| Cloud Run | Hosts the Flask UI + session API | Serverless (pay per request) |
-| Cloud Storage | Stores session JSONs, result ZIPs, CSVs | Standard storage |
-| Secret Manager | Stores Tailscale auth key | Free tier |
-| Artifact Registry | Container image for Cloud Run | Free tier (first 500MB) |
+| AWS App Runner or ECS Fargate | Hosts the Flask UI + session API | Low-cost managed container hosting |
+| Amazon S3 | Stores session JSONs, result ZIPs, CSVs | Standard storage (5 GB Free Tier) |
+| AWS Systems Manager Parameter Store | Stores Tailscale auth key | Free (Standard parameters) |
+| Amazon ECR | Container image registry for App Runner | 500 MB/month free tier |
 
-### 3.2 Cloud Run Service
+### 3.2 App Runner / ECS Fargate Service
 
 **What it does:**
 - Serves the full existing HTML/JS/CSS UI
 - Exposes `/session` endpoints — CRUD for session config files
 - Exposes `/infer` endpoint — receives image from browser, proxies to local gateway via Tailscale, returns result
-- Exposes `/results` endpoint — download ZIP / CSV from Cloud Storage
+- Exposes `/results` endpoint — download ZIP / CSV from Amazon S3
 
 **What it does NOT do:**
 - No model loading
@@ -171,15 +171,15 @@ Headroom is sufficient. Triton holds models resident — no loading between call
 - No FAISS
 - No preprocessing
 
-**Sizing:** 1 vCPU, 512MB RAM is sufficient. Cloud Run scales to zero — no idle cost.
+**Sizing:** 1 vCPU, 2GB RAM is the minimum App Runner configuration, which is extremely lightweight and fast. It handles low-volume scaling perfectly.
 
 ### 3.3 Session Config Sync Strategy
 
 Session configs (JSON) live in two places:
-- Cloud Storage (source of truth, accessible from browser)
+- Amazon S3 (source of truth, accessible from browser)
 - Local IPC disk (gateway reads at inference time)
 
-Sync mechanism: **on session save**, Cloud Run writes to Cloud Storage AND triggers a lightweight webhook to the local gateway (`POST /sync_session`). Gateway pulls the JSON and writes to local disk. No polling, no lag.
+Sync mechanism: **on session save**, the cloud server writes to Amazon S3 AND triggers a lightweight webhook to the local gateway (`POST /sync_session`). Gateway pulls the JSON and writes to local disk. No polling, no lag.
 
 ### 3.4 Result Storage Flow
 
@@ -188,10 +188,10 @@ Local gateway generates:
   ├── heatmap images (PNG)
   └── anomaly scores (in-memory dict)
 
-Cloud Run receives result JSON (scores + heatmap base64)
-  → writes heatmap PNGs to Cloud Storage
-  → writes CSV report to Cloud Storage
-  → returns signed download URLs to browser
+Cloud UI/API Server receives result JSON (scores + heatmap base64)
+  → writes heatmap PNGs to Amazon S3
+  → writes CSV report to Amazon S3
+  → returns signed download URLs (S3 Pre-signed URLs) to browser
 ```
 
 ---
@@ -202,37 +202,37 @@ Cloud Run receives result JSON (scores + heatmap base64)
 
 ```
 Devices on Tailscale network:
-  ├── Local IPC          → tailscale IP: 100.x.x.1
-  └── GCP Cloud Run VM   → tailscale IP: 100.x.x.2
+  ├── Local IPC                   → tailscale IP: 100.x.x.1
+  └── AWS EC2 Jump Node Instance   → tailscale IP: 100.x.x.2
 ```
 
-Cloud Run cannot run a persistent sidecar for Tailscale. **Use a GCP VM (e2-micro, free tier)** as the cloud-side network node instead:
+Since AWS App Runner or serverless Fargate cannot host a persistent Tailscale sidecar simply, **use a t2.micro or t3.micro EC2 instance (AWS Free Tier, 750 hours/month)** as the cloud-side network node/NAT gateway:
 
 ```
-Browser → Cloud Run (UI + session API)
-                ↓
-         GCP e2-micro VM (free)
-         [Tailscale installed]
-                ↓ Tailscale tunnel
-         Local IPC Gateway :8080
+Browser → AWS App Runner (UI + session API)
+                ↓ (VPC Connector egress)
+          EC2 t2.micro / t3.micro Instance (AWS Free Tier)
+          [Tailscale installed & routing enabled]
+                ↓ Tailscale VPN tunnel
+          Local IPC Inference Gateway :8080
 ```
 
-This adds one VM hop but keeps Cloud Run serverless and the VM is free tier.
+This adds one ultra-low latency internal hop but keeps the UI hosting serverless/lightweight, and is fully covered under the AWS Free Tier.
 
 ### 4.2 Latency Profile
 
 | Hop | Latency |
 |----|---------|
-| Browser → Cloud Run | 10–30ms |
-| Cloud Run → GCP VM | < 1ms (same region) |
-| GCP VM → Local Gateway (Tailscale) | 20–60ms (ISP dependent) |
+| Browser → AWS App Runner | 15–35ms |
+| App Runner → EC2 Instance (VPC) | < 1ms (same availability zone/VPC) |
+| EC2 VM → Local Gateway (Tailscale) | 20–60ms (ISP dependent) |
 | Gateway → Triton (gRPC loopback) | < 1ms |
 | Triton inference (DINOv3, BS=4) | 4–8ms |
 | FAISS search | 1–3ms |
-| **Total per image (round trip)** | **~40–100ms** |
+| **Total per image (round trip)** | **~45–110ms** |
 
 With 20 images in validation (Phase 4):
-- Sequential: 20 × 100ms = 2 seconds network overhead
+- Sequential: 20 × 110ms = 2.2 seconds network overhead
 - Parallel (async gateway): 8-10 seconds for 20 images with 4 concurrent requests
 
 ---
@@ -558,16 +558,16 @@ One gRPC call from gateway → both models run in sequence inside Triton → one
 | Connectivity | Tailscale | Latest |
 | Metrics | Prometheus + Grafana | Latest |
 
-### Cloud (Google Cloud)
+### Cloud (AWS)
 
-| Component | GCP Service | Notes |
-|-----------|------------|-------|
-| UI + API | Cloud Run | Serverless, auto-scales to zero |
-| Static assets | Cloud Storage | CDN-served JS/CSS |
-| Session + results | Cloud Storage | Standard tier |
-| Network proxy | GCP e2-micro VM | Free tier, runs Tailscale |
-| Secrets | Secret Manager | Tailscale auth key |
-| Container registry | Artifact Registry | Cloud Run image |
+| Component | AWS Service | Notes |
+|-----------|-------------|-------|
+| UI + API | AWS App Runner / ECS Fargate | Serverless container hosting |
+| Static assets | Amazon S3 | Served via S3 bucket (5 GB Free Tier) |
+| Session + results | Amazon S3 | Standard storage tier |
+| Network proxy | EC2 t2.micro / t3.micro | Free Tier (750 hrs/month), runs Tailscale |
+| Secrets | Systems Manager Parameter Store | Free standard parameter storage |
+| Container registry | Amazon ECR | 500 MB/month free tier |
 
 ---
 
@@ -577,20 +577,20 @@ One gRPC call from gateway → both models run in sequence inside Triton → one
 
 | Item | Service | Est. Cost/Month |
 |------|---------|----------------|
-| Cloud Run (UI + API) | Cloud Run | $0–3 (free tier covers most) |
-| GCP e2-micro VM (Tailscale hop) | Compute Engine | **Free** (always-free tier) |
-| Cloud Storage (sessions + results) | Cloud Storage | $0.02–0.50 |
+| App Runner (UI + API) | AWS App Runner | ~$5–10 (depends on request rate and active hours) |
+| EC2 VM (Tailscale hop) | EC2 t2.micro / t3.micro | **Free** (AWS 12-month Free Tier) |
+| Amazon S3 (sessions + results) | Amazon S3 | $0.02–0.50 (mostly covered by 5GB free tier) |
 | Triton + DINOv3 + FAISS | Local IPC | Electricity only |
-| Tailscale | Tailscale | Free (personal) |
-| **Total cloud** | | **~$1–5/month** |
+| Tailscale | Tailscale | Free (personal/starter plan) |
+| **Total cloud** | | **~$5–10/month** |
 
 ### Comparison
 
 | Approach | Monthly Cost |
 |----------|-------------|
-| All-cloud GPU (GCP T4 VM, 24/7) | ~$350/month |
-| All-cloud GPU (Cloud Run GPU) | ~$200–400/month |
-| **This architecture** | **~$1–5/month** |
+| All-cloud GPU (AWS g4dn.xlarge VM, 24/7) | ~$520/month |
+| All-cloud GPU (Serverless GPU) | ~$250–450/month |
+| **This architecture** | **~$5–10/month** |
 
 ---
 

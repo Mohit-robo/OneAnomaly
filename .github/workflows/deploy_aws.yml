@@ -1,0 +1,47 @@
+name: Deploy to AWS App Runner
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: ap-southeast-2a
+  ECR_REPOSITORY: anomaly-app-frontend
+  APP_RUNNER_SERVICE: anomaly-app-service
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::386403273478:role/GitHubActionsECRPushRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f dockerfiles/Dockerfile.cloud -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      # Optional: Deploy to App Runner / ECS
+      # This step assumes AWS App Runner auto-deploys on new ECR push if configured in AWS, 
+      # or you can use aws cli to trigger update.
+      # - name: Deploy to App Runner
+      #   run: |
+      #     aws apprunner start-deployment --service-arn arn:aws:apprunner:REGION:ACCOUNT:service/...

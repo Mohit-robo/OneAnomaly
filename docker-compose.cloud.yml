@@ -12,5 +12,5 @@ services:
       - GATEWAY_URL=http://100.113.188.110:8080 # Direct Tailscale IP of local GPU node
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-southeast-2a}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-southeast-2}
       - S3_BUCKET_NAME=${S3_BUCKET_NAME:-oneanomaly-sessions}

@@ -22,6 +22,7 @@ COPY python/src ./python/src
 ENV FLASK_APP=python/api_server.py
 ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/python
 ENV PORT=8080
 # Set by App Runner / ECS at runtime:
 # ENV GATEWAY_URL=http://<tailscale-ip>:8080
